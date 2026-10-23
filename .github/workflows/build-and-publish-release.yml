@@ -1,6 +1,15 @@
 name: Build and publish Hendy web release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'scripts/package-web-release.mjs'
+      - '.github/workflows/build-and-publish-release.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -20,6 +29,10 @@ on:
 
 permissions:
   contents: read
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || format('0.0.{0}-ci.{1}', github.run_number, github.run_attempt) }}
+  RELEASE_NOTES: ${{ inputs.notes || 'Automated web bundle validation build.' }}
 
 concurrency:
   group: hendy-web-release-${{ inputs.version }}
@@ -46,23 +59,20 @@ jobs:
 
       - name: Package website and calculate checksums
         run: npm run package:web-release
-        env:
-          RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.notes }}
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hendy-store-web-${{ inputs.version }}
+          name: hendy-store-web-${{ env.RELEASE_VERSION }}
           path: |
-            release-artifacts/hendy-store-web-v${{ inputs.version }}.zip
-            release-artifacts/hendy-store-web-v${{ inputs.version }}.zip.sha256
+            release-artifacts/hendy-store-web-v${{ env.RELEASE_VERSION }}.zip
+            release-artifacts/hendy-store-web-v${{ env.RELEASE_VERSION }}.zip.sha256
             release-artifacts/release-summary.json
           if-no-files-found: error
           retention-days: 30
 
       - name: Validate publishing configuration
-        if: ${{ inputs.publish_to_store }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_to_store }}
         env:
           RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
         run: |
@@ -75,8 +85,8 @@ jobs:
         if: ${{ inputs.publish_to_store }}
         env:
           RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
-          RELEASE_VERSION: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.notes }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          RELEASE_NOTES: ${{ env.RELEASE_NOTES }}
           PUBLISH_URL: https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish
         run: |
           set -euo pipefail
