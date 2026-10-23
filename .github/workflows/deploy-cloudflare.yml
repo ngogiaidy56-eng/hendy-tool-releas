@@ -1,0 +1,68 @@
+name: Deploy to Cloudflare (Pages & Workers)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target Cloudflare service (pages, worker, or both)'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - pages
+          - worker
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: hendy-cloudflare-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Deploy to Cloudflare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Lint and Type-check
+        run: npm run lint
+
+      - name: Build production package
+        run: npm run build
+
+      # Deploy Cloudflare Pages
+      - name: Deploy to Cloudflare Pages
+        if: github.event.inputs.target != 'worker'
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: hendytoolsplatform
+          directory: dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      # Deploy Cloudflare Worker (Edge API & Asset proxy)
+      - name: Deploy to Cloudflare Workers
+        if: github.event.inputs.target != 'pages' && env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler deploy --compatibility-date 2026-10-15
