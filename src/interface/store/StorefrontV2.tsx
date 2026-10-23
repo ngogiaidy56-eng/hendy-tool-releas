@@ -1,286 +1,202 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownToLine, ArrowRight, Boxes, CheckCircle2, ChevronDown, ExternalLink,
-  FileArchive, Github, Monitor, Package, Search, ShieldCheck, Smartphone,
-  Sparkles, TerminalSquare, TriangleAlert
+  FileArchive, Github, Grid2X2, Monitor, Package, Search, ShieldCheck,
+  Smartphone, Sparkles, Store, TerminalSquare, X
 } from 'lucide-react';
 
 type ReleaseItem = {
-  id: string;
-  appName: string;
-  appSlug: string;
-  version: string;
-  platform: string;
-  fileName: string;
-  sizeBytes: number | null;
-  sha256: string | null;
-  publishedAt: string | null;
-  releaseNotes: string;
-  downloadUrl: string | null;
-  available: boolean;
+  id: string; key: string; appName: string; appSlug: string; version: string;
+  platform: string; fileName: string; sizeBytes: number | null; sha256: string | null;
+  publishedAt: string | null; releaseNotes: string; downloadUrl: string | null; available: boolean;
 };
+type StorefrontConfig = {
+  brandName: string; announcement: string; heroEyebrow: string; heroTitle: string;
+  heroAccent: string; heroDescription: string; supportUrl: string; repositoryUrl: string;
+};
+type AppListing = { slug: string; name: string; version: string; platforms: string[]; artifacts: ReleaseItem[]; newestDate: string; notes: string };
 
-const PLATFORM_LABELS: Record<string, string> = {
-  windows: 'Windows',
-  android: 'Android',
-  ios: 'iOS',
-  macos: 'macOS',
-  linux: 'Linux',
-  web: 'Web / Source bundle'
+const DEFAULT_CONFIG: StorefrontConfig = {
+  brandName: 'Hendy Store', announcement: '', heroEyebrow: 'ỨNG DỤNG · CÔNG CỤ · BẢN PHÁT HÀNH',
+  heroTitle: 'Tất cả ứng dụng', heroAccent: 'trong một nơi.',
+  heroDescription: 'Khám phá ứng dụng và tải xuống các bản phát hành thật, với thông tin phiên bản và mã kiểm tra tệp rõ ràng.',
+  supportUrl: '', repositoryUrl: 'https://github.com/ngogiaidy56-eng/hendy-tool-releas'
 };
+const PLATFORM_LABELS: Record<string, string> = { windows: 'Windows', android: 'Android', ios: 'iOS', macos: 'macOS', linux: 'Linux', web: 'Web / Source' };
+const PLATFORM_ORDER = ['windows', 'macos', 'linux', 'android', 'ios', 'web'];
 
 function prettySize(size: number | null): string {
   if (size === null || !Number.isFinite(size)) return 'Chưa có tệp';
   if (size < 1024) return size + ' B';
   if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
-  return (size / (1024 * 1024)).toFixed(1) + ' MB';
+  return (size / (1024 * 1024)).toFixed(2) + ' MB';
+}
+function initials(name: string): string {
+  return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0] || '').join('').toUpperCase() || 'AP';
+}
+function formatDate(value: string): string {
+  const date = new Date(value);
+  return value && !Number.isNaN(date.getTime()) ? date.toLocaleDateString('vi-VN') : '—';
+}
+function versionCompare(left: string, right: string): number {
+  const a = left.replace(/^v/, '').split(/[.-]/).map((part) => Number(part) || 0);
+  const b = right.replace(/^v/, '').split(/[.-]/).map((part) => Number(part) || 0);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (a[i] || 0) - (b[i] || 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+function safeHttps(value: string, fallback: string): string {
+  try { const url = new URL(value); return url.protocol === 'https:' ? url.toString() : fallback; }
+  catch { return fallback; }
+}
+function groupReleases(releases: ReleaseItem[]): AppListing[] {
+  const groups = new Map<string, ReleaseItem[]>();
+  for (const item of releases) {
+    const slug = item.appSlug || item.appName.toLowerCase();
+    groups.set(slug, [...(groups.get(slug) || []), item]);
+  }
+  return Array.from(groups.entries()).map(([slug, items]) => {
+    const versions = items.map((item) => item.version).sort(versionCompare);
+    const latestVersion = versions[versions.length - 1] || '0.0.0';
+    const newest = items.filter((item) => item.version === latestVersion);
+    const platforms = Array.from(new Set(items.map((item) => item.platform))).sort((a, b) => PLATFORM_ORDER.indexOf(a) - PLATFORM_ORDER.indexOf(b));
+    return {
+      slug, name: items[0]?.appName || slug, version: latestVersion, platforms,
+      artifacts: newest.sort((a, b) => Number(b.available) - Number(a.available)),
+      newestDate: items.map((item) => item.publishedAt || '').sort().reverse()[0] || '',
+      notes: newest.find((item) => item.releaseNotes)?.releaseNotes || 'Không có ghi chú phát hành.'
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void }) {
   const [releases, setReleases] = useState<ReleaseItem[]>([]);
+  const [config, setConfig] = useState<StorefrontConfig>(DEFAULT_CONFIG);
   const [query, setQuery] = useState('');
   const [platform, setPlatform] = useState('all');
+  const [category, setCategory] = useState<'all' | 'desktop' | 'mobile' | 'web'>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState<AppListing | null>(null);
 
   useEffect(() => {
     let active = true;
-    async function loadCatalog() {
+    async function load() {
       setLoading(true);
       setError('');
       try {
-        const responses = await Promise.all([
-          fetch('/api/v1/published-releases', { headers: { Accept: 'application/json' } }),
-          fetch('/api/v1/releases', { headers: { Accept: 'application/json' } })
+        const [catalogResponse, configResponse] = await Promise.all([
+          fetch('/api/v1/published-releases', { headers: { Accept: 'application/json' }, credentials: 'same-origin' }),
+          fetch('/api/v1/store-config', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
         ]);
-        const [publishedResponse, catalogResponse] = responses;
-        let published: ReleaseItem[] = [];
-        let catalog: ReleaseItem[] = [];
-        if (publishedResponse.ok) {
-          const body = await publishedResponse.json();
-          published = (body.releases || []).map((item: any) => ({
-            id: item.key || item.id || item.fileName,
-            appName: item.appName || item.appSlug || 'Ứng dụng',
-            appSlug: item.appSlug || 'app',
-            version: item.version || '0.0.0',
-            platform: item.platform || 'web',
-            fileName: item.fileName || 'release.zip',
-            sizeBytes: typeof item.sizeBytes === 'number' ? item.sizeBytes : null,
-            sha256: item.sha256 || null,
-            publishedAt: item.publishedAt || null,
-            releaseNotes: item.releaseNotes || 'Bản phát hành đã tải lên kho R2.',
-            downloadUrl: item.downloadUrl || null,
-            available: Boolean(item.downloadUrl)
-          }));
-        }
-        if (catalogResponse.ok) {
-          const body = await catalogResponse.json();
-          catalog = (body.releases || []).map((item: any) => ({
-            id: 'catalog-' + item.platform + '-' + item.version,
-            appName: 'Hendy Tools Pro',
-            appSlug: 'hendy-tools-pro',
-            version: item.version,
-            platform: item.platform,
-            fileName: item.fileName,
-            sizeBytes: typeof item.fileSizeBytes === 'number' ? item.fileSizeBytes : null,
-            sha256: item.sha256 || null,
-            publishedAt: item.publishedAt || null,
-            releaseNotes: item.releaseNotes || '',
-            downloadUrl: item.downloadUrl || null,
-            available: Boolean(item.available && item.downloadUrl)
-          }));
-        }
+        if (!catalogResponse.ok) throw new Error('Kho phát hành trả về HTTP ' + catalogResponse.status);
+        const catalogBody = await catalogResponse.json();
+        const configBody = configResponse.ok ? await configResponse.json() : null;
+        const items: ReleaseItem[] = (catalogBody.releases || []).map((item: any) => ({
+          id: String(item.key || item.fileName || ''), key: String(item.key || ''),
+          appName: String(item.appName || item.appSlug || 'Ứng dụng'), appSlug: String(item.appSlug || 'application'),
+          version: String(item.version || '0.0.0'), platform: String(item.platform || 'web'),
+          fileName: String(item.fileName || 'artifact'), sizeBytes: typeof item.sizeBytes === 'number' ? item.sizeBytes : null,
+          sha256: typeof item.sha256 === 'string' ? item.sha256 : null, publishedAt: typeof item.publishedAt === 'string' ? item.publishedAt : null,
+          releaseNotes: String(item.releaseNotes || ''), downloadUrl: typeof item.downloadUrl === 'string' ? item.downloadUrl : null,
+          available: Boolean(item.downloadUrl)
+        }));
         if (active) {
-          const combined = published.concat(catalog).filter((item, index, all) =>
-            all.findIndex((candidate) => candidate.fileName === item.fileName && candidate.version === item.version) === index
-          );
-          setReleases(combined);
-          if (responses.every((response) => !response.ok)) setError('API kho phát hành chưa phản hồi thành công. Bạn vẫn có thể mở trang quản trị để kiểm tra cấu hình.');
+          setReleases(items);
+          if (configBody?.config) setConfig({ ...DEFAULT_CONFIG, ...configBody.config });
         }
-      } catch {
-        if (active) setError('Không kết nối được API kho ứng dụng. Vui lòng thử tải lại trang.');
-      } finally {
-        if (active) setLoading(false);
-      }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : 'Không thể tải danh mục phát hành.');
+      } finally { if (active) setLoading(false); }
     }
-    void loadCatalog();
+    void load();
     return () => { active = false; };
   }, []);
 
-  const filtered = useMemo(() => releases.filter((item) => {
-    const text = (item.appName + ' ' + item.fileName + ' ' + item.releaseNotes + ' ' + item.platform).toLowerCase();
-    return text.includes(query.toLowerCase()) && (platform === 'all' || item.platform === platform);
-  }), [releases, query, platform]);
-
-  const availableCount = releases.filter((release) => release.available).length;
+  const apps = useMemo(() => groupReleases(releases), [releases]);
+  const filtered = useMemo(() => apps.filter((app) => {
+    const text = (app.name + ' ' + app.slug + ' ' + app.notes + ' ' + app.version + ' ' + app.platforms.join(' ')).toLowerCase();
+    const matchesQuery = text.includes(query.toLowerCase());
+    const matchesPlatform = platform === 'all' || app.platforms.includes(platform);
+    const matchesCategory = category === 'all' ||
+      (category === 'desktop' && app.platforms.some((p) => ['windows', 'macos', 'linux'].includes(p))) ||
+      (category === 'mobile' && app.platforms.some((p) => ['android', 'ios'].includes(p))) ||
+      (category === 'web' && app.platforms.includes('web'));
+    return matchesQuery && matchesPlatform && matchesCategory;
+  }), [apps, query, platform, category]);
+  const availableCount = releases.filter((item) => item.available && item.downloadUrl).length;
+  const repositoryUrl = safeHttps(config.repositoryUrl, DEFAULT_CONFIG.repositoryUrl);
 
   return (
-    <div className="store-shell min-h-screen bg-[#f7f8fa] text-slate-900">
-      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4 lg:px-10">
-          <a href="/" className="flex items-center gap-3 no-underline" aria-label="Hendy Store home">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-300">
-              <Boxes size={23} strokeWidth={1.8} />
-            </span>
-            <span>
-              <span className="block text-lg font-extrabold tracking-tight">hendy<span className="text-indigo-600">/</span>store</span>
-              <span className="block text-[11px] font-medium tracking-wide text-slate-500">APP CATALOG · RELEASE CHANNEL</span>
-            </span>
+    <div className="store-shell min-h-screen bg-[#f6f7fb] text-slate-900">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/95 backdrop-blur-xl">
+        {config.announcement && <div className="bg-[#162a66] px-4 py-2 text-center text-xs font-semibold text-white">{config.announcement}</div>}
+        <div className="mx-auto flex max-w-[1600px] items-center gap-5 px-4 py-3.5 sm:px-7 lg:px-10">
+          <a href="/" className="flex shrink-0 items-center gap-3 no-underline" aria-label="Trang chủ Hendy Store">
+            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200"><Boxes size={23}/></span>
+            <span><span className="block text-lg font-extrabold tracking-tight">{config.brandName || 'Hendy Store'}</span><span className="mt-0.5 hidden text-[10px] font-bold uppercase tracking-[.16em] text-slate-400 sm:block">APP DISCOVERY PLATFORM</span></span>
           </a>
-          <nav className="hidden items-center gap-7 text-sm font-medium text-slate-600 md:flex">
-            <a className="hover:text-slate-950" href="#catalog">Kho ứng dụng</a>
-            <a className="hover:text-slate-950" href="#release-process">Quy trình phát hành</a>
-            <a className="hover:text-slate-950" href="https://github.com/ngogiaidy56-eng/hendy-tool-releas" target="_blank" rel="noreferrer">Mã nguồn <ExternalLink size={13} className="ml-1 inline" /></a>
+          <nav className="hidden items-center gap-2 lg:flex">
+            <a href="#discover" className="rounded-full bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700">Khám phá</a>
+            <a href="#catalog" className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">Ứng dụng</a>
+            <a href="#security" className="rounded-full px-4 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">An toàn tải xuống</a>
           </nav>
-          <button onClick={onOpenAdmin} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">
-            Studio quản trị <ArrowRight size={16} />
-          </button>
+          <div className="ml-auto hidden min-w-0 max-w-xl flex-1 md:block">
+            <label className="flex items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50">
+              <Search size={18} className="shrink-0 text-slate-400"/><input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Tìm tên ứng dụng, công cụ hoặc nền tảng…"/>
+            </label>
+          </div>
+          <button onClick={onOpenAdmin} className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-full bg-slate-950 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-700 md:ml-0"><TerminalSquare size={15}/><span className="hidden sm:inline">Developer Studio</span><span className="sm:hidden">Studio</span></button>
         </div>
       </header>
 
-      <main>
-        <section className="relative overflow-hidden border-b border-slate-200 bg-white">
-          <div className="absolute -right-24 -top-36 h-[450px] w-[450px] rounded-full bg-indigo-100/70 blur-3xl" />
-          <div className="absolute right-[25%] top-24 h-40 w-40 rounded-full bg-cyan-100/70 blur-3xl" />
-          <div className="relative mx-auto grid max-w-[1440px] gap-12 px-5 py-16 lg:grid-cols-[1.2fr_.8fr] lg:px-10 lg:py-24">
-            <div className="max-w-3xl">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-bold uppercase tracking-[.13em] text-indigo-700">
-                <Sparkles size={14} /> Software release platform
-              </div>
-              <h1 className="max-w-3xl text-4xl font-black leading-[1.04] tracking-[-.045em] sm:text-6xl lg:text-7xl">
-                Ứng dụng của bạn.
-                <span className="block text-indigo-600">Một nơi phát hành.</span>
-              </h1>
-              <p className="mt-6 max-w-2xl text-base leading-7 text-slate-600 sm:text-lg">
-                Khám phá gói phát hành, xem phiên bản và tải xuống tệp thực đã được xuất bản. Mỗi mục chỉ bật nút tải khi kho lưu trữ xác nhận có tệp.
-              </p>
-              <div className="mt-9 flex flex-wrap gap-3">
-                <a href="#catalog" className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-5 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700">
-                  Khám phá bản phát hành <ArrowRight size={17} />
-                </a>
-                <button onClick={onOpenAdmin} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-bold text-slate-700 transition hover:border-slate-400">
-                  <TerminalSquare size={17} /> Đóng gói ứng dụng
-                </button>
-              </div>
-              <div className="mt-12 grid max-w-xl grid-cols-3 gap-5 border-t border-slate-200 pt-6">
-                <div><strong className="block text-2xl font-black">{releases.length}</strong><span className="text-xs text-slate-500">Gói trong danh mục</span></div>
-                <div><strong className="block text-2xl font-black text-emerald-600">{availableCount}</strong><span className="text-xs text-slate-500">Tệp tải đã sẵn sàng</span></div>
-                <div><strong className="block text-2xl font-black">SHA-256</strong><span className="text-xs text-slate-500">Đối soát tệp</span></div>
-              </div>
+      <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-8 px-4 py-6 sm:px-7 lg:grid-cols-[230px_minmax(0,1fr)] lg:px-10 lg:py-9">
+        <aside className="hidden lg:block">
+          <div className="sticky top-[100px] space-y-8">
+            <div><div className="mb-3 px-3 text-[10px] font-extrabold uppercase tracking-[.18em] text-slate-400">Duyệt cửa hàng</div>
+              {[
+                { key: 'all', label: 'Tất cả ứng dụng', icon: Grid2X2 },
+                { key: 'desktop', label: 'Máy tính', icon: Monitor },
+                { key: 'mobile', label: 'Di động', icon: Smartphone },
+                { key: 'web', label: 'Ứng dụng web', icon: Store }
+              ].map((item) => { const Icon = item.icon; return <button key={item.key} onClick={() => setCategory(item.key as typeof category)} className={'mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ' + (category === item.key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-white hover:text-slate-900')}><Icon size={17}/>{item.label}</button>; })}
             </div>
-            <div className="self-center">
-              <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-3 shadow-2xl shadow-slate-200/70">
-                <div className="rounded-[1.5rem] bg-slate-950 p-6 text-white sm:p-8">
-                  <div className="flex items-center justify-between">
-                    <div className="flex gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-rose-400"/><i className="h-2.5 w-2.5 rounded-full bg-amber-300"/><i className="h-2.5 w-2.5 rounded-full bg-emerald-400"/></div>
-                    <span className="font-mono text-[10px] text-slate-500">RELEASE CONTROL</span>
-                  </div>
-                  <div className="mt-8 flex items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500"><Package size={28}/></div>
-                    <div><div className="text-lg font-bold">Release package</div><div className="text-xs text-slate-400">Manifest · Hash · Artifact</div></div>
-                  </div>
-                  <div className="mt-7 space-y-3">
-                    {[['Artifact storage','R2 Object Storage'],['Integrity check','SHA-256'],['Distribution','Worker Edge API']].map((item) => (
-                      <div key={item[0]} className="flex items-center justify-between border-b border-white/10 pb-3 text-sm">
-                        <span className="text-slate-400">{item[0]}</span><span className="flex items-center gap-2 font-medium"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400"/>{item[1]}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-6 rounded-xl border border-white/10 bg-white/[.04] p-3 font-mono text-xs leading-6 text-slate-300">
-                    <span className="text-emerald-400">✓</span> Verify metadata from API<br/>
-                    <span className="text-emerald-400">✓</span> Download only when artifact exists<br/>
-                    <span className="text-amber-300">•</span> Native signing stays in CI/toolchain
-                  </div>
-                </div>
-              </div>
-            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-xs font-extrabold"><ShieldCheck size={16} className="text-emerald-600"/> Tệp phát hành xác thực</div><p className="mt-2 text-xs leading-5 text-slate-500">Nút tải chỉ hoạt động khi API xác nhận artifact tồn tại trong kho lưu trữ.</p><div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span className="text-[11px] text-slate-400">Tệp sẵn sàng</span><strong className="text-sm text-emerald-700">{availableCount}</strong></div></div>
+            <div className="space-y-2 px-3 text-xs text-slate-400"><a href={repositoryUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-indigo-700"><Github size={14}/> Repository mã nguồn <ExternalLink size={11}/></a>{config.supportUrl && <a href={safeHttps(config.supportUrl, '#')} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-indigo-700"><ShieldCheck size={14}/> Hỗ trợ người dùng <ExternalLink size={11}/></a>}<button onClick={onOpenAdmin} className="flex items-center gap-2 hover:text-indigo-700"><TerminalSquare size={14}/> Trung tâm nhà phát triển</button></div>
           </div>
-        </section>
+        </aside>
 
-        <section id="catalog" className="mx-auto max-w-[1440px] px-5 py-14 lg:px-10 lg:py-20">
-          <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-            <div>
-              <div className="text-xs font-bold uppercase tracking-[.18em] text-indigo-600">Release catalog</div>
-              <h2 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">Kho bản phát hành</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">Danh sách lấy từ API của Worker và kho R2. Dữ liệu cấu hình mẫu không được coi là gói tải thật.</p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <label className="flex min-w-64 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm">
-                <Search size={17} className="text-slate-400"/>
-                <input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Tìm ứng dụng hoặc tên tệp"/>
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
-                <ChevronDown size={16} className="text-slate-400"/>
-                <select value={platform} onChange={(event) => setPlatform(event.target.value)} className="bg-transparent text-sm outline-none">
-                  <option value="all">Mọi nền tảng</option>
-                  {Object.entries(PLATFORM_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
-                </select>
-              </label>
+        <main id="discover" className="min-w-0">
+          <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#111a48] via-[#28378a] to-[#6655d9] p-6 text-white shadow-xl shadow-indigo-100 sm:p-9 lg:p-11">
+            <div className="absolute -right-16 -top-24 h-80 w-80 rounded-full border-[45px] border-white/[.06]"/><div className="absolute -bottom-36 right-[20%] h-72 w-72 rounded-full bg-cyan-300/10 blur-3xl"/>
+            <div className="relative grid gap-8 xl:grid-cols-[minmax(0,1fr)_250px] xl:items-center">
+              <div className="max-w-3xl"><div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[.18em] text-indigo-100"><Sparkles size={13}/>{config.heroEyebrow}</div><h1 className="mt-5 text-4xl font-black leading-[1.04] tracking-[-.045em] sm:text-5xl xl:text-6xl">{config.heroTitle}<span className="mt-1 block text-cyan-200">{config.heroAccent}</span></h1><p className="mt-5 max-w-2xl text-sm leading-7 text-indigo-100 sm:text-base">{config.heroDescription}</p><div className="mt-7 flex flex-wrap gap-3"><a href="#catalog" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-extrabold text-indigo-800 transition hover:bg-cyan-50">Khám phá kho ứng dụng <ArrowRight size={16}/></a><button onClick={onOpenAdmin} className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/15"><TerminalSquare size={16}/> Đóng gói ứng dụng</button></div></div>
+              <div className="hidden rounded-3xl border border-white/15 bg-slate-950/20 p-5 backdrop-blur-sm xl:block"><div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.15em] text-indigo-100"><span>Release center</span><span className="h-2 w-2 rounded-full bg-emerald-300"/></div><div className="mt-7 flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15"><Package size={23}/></div><div><div className="text-sm font-extrabold">Verified artifacts</div><div className="mt-1 text-xs text-indigo-100">Metadata from Worker API</div></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex justify-between border-b border-white/10 pb-3"><span className="text-indigo-100">Ứng dụng</span><strong>{apps.length}</strong></div><div className="flex justify-between border-b border-white/10 pb-3"><span className="text-indigo-100">Tệp tải thật</span><strong>{availableCount}</strong></div><div className="flex justify-between"><span className="text-indigo-100">Kiểm tra</span><strong>SHA-256</strong></div></div></div>
             </div>
           </div>
 
-          {error && <div role="status" className="mt-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><TriangleAlert size={18} className="mt-0.5 shrink-0"/><p>{error}</p></div>}
+          <div className="mt-8 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><div className="text-[10px] font-extrabold uppercase tracking-[.18em] text-indigo-600">Explore apps</div><h2 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">Ứng dụng trong kho</h2><p className="mt-2 text-sm text-slate-500">Thông tin lấy từ các bản phát hành đã đăng lên R2.</p></div><label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 md:hidden"><Search size={16} className="text-slate-400"/><input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none" placeholder="Tìm ứng dụng…"/></label></div>
+          <div id="catalog" className="mt-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4"><div className="flex flex-wrap gap-2">{[{key:'all',label:'Tất cả'},{key:'desktop',label:'Desktop'},{key:'mobile',label:'Mobile'},{key:'web',label:'Web'}].map((item) => <button key={item.key} onClick={() => setCategory(item.key as typeof category)} className={'rounded-full px-4 py-2 text-xs font-bold transition ' + (category === item.key ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'border border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-700')}>{item.label}</button>)}</div><label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2"><ChevronDown size={14} className="text-slate-400"/><select value={platform} onChange={(event) => setPlatform(event.target.value)} className="bg-transparent text-xs font-semibold outline-none"><option value="all">Mọi nền tảng</option>{PLATFORM_ORDER.map((value) => <option key={value} value={value}>{PLATFORM_LABELS[value]}</option>)}</select></label></div>
+          {error && <div role="status" className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</div>}
+          {loading ? <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{[1,2,3].map((item) => <div key={item} className="h-64 animate-pulse rounded-3xl bg-white ring-1 ring-slate-200"/>)}</div>
+            : filtered.length ? <div className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{filtered.map((app, index) => {
+              const available = app.artifacts.filter((item) => item.available && item.downloadUrl);
+              const colors = ['bg-gradient-to-br from-indigo-500 to-violet-700','bg-gradient-to-br from-cyan-500 to-blue-700','bg-gradient-to-br from-emerald-500 to-teal-700','bg-gradient-to-br from-rose-500 to-orange-600'];
+              return <article key={app.slug} className="group flex min-h-[252px] cursor-pointer flex-col rounded-[1.6rem] border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-100/60" onClick={() => setSelected(app)}><div className="flex items-start gap-4"><div className={'flex h-[66px] w-[66px] shrink-0 items-center justify-center rounded-[1.35rem] text-xl font-black text-white shadow-lg ' + colors[index % colors.length]}>{initials(app.name)}</div><div className="min-w-0 flex-1 pt-1"><h3 className="line-clamp-2 text-base font-extrabold leading-5 tracking-tight transition group-hover:text-indigo-700">{app.name}</h3><div className="mt-2 text-xs font-semibold text-slate-400">Phiên bản {app.version}</div><div className="mt-2 flex flex-wrap gap-1">{app.platforms.map((p) => <span key={p} className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{PLATFORM_LABELS[p] || p}</span>)}</div></div></div><p className="mt-4 line-clamp-2 text-xs leading-5 text-slate-500">{app.notes}</p><div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4"><span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400"><ShieldCheck size={14} className="text-emerald-600"/>{available.length} tệp có thể tải</span><button onClick={(event) => { event.stopPropagation(); setSelected(app); }} className="rounded-full bg-indigo-50 px-4 py-2 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-600 hover:text-white">Chi tiết</button></div></article>;
+            })}</div> : <div className="mt-7 rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><Package size={24}/></div><h3 className="mt-4 text-lg font-extrabold">Chưa có ứng dụng đã phát hành</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Kho chỉ hiển thị bản phát hành thật. Nhà phát triển có thể nạp mã nguồn, tạo gói hoặc tải artifact đã build từ CI lên R2.</p><button onClick={onOpenAdmin} className="mt-5 inline-flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-700">Mở Developer Studio <ArrowRight size={16}/></button></div>}
 
-          {loading ? (
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {[1,2,3].map((item) => <div key={item} className="h-60 animate-pulse rounded-3xl border border-slate-200 bg-white"/>)}
-            </div>
-          ) : filtered.length ? (
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((item) => (
-                <article key={item.id} className="group flex min-h-[270px] flex-col rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-100/60">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-800">{item.platform === 'android' || item.platform === 'ios' ? <Smartphone size={22}/> : <Monitor size={22}/>}</div>
-                    <span className={'rounded-full px-3 py-1 text-[11px] font-bold ' + (item.available ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>
-                      {item.available ? 'Có tệp tải thật' : 'Chưa có artifact'}
-                    </span>
-                  </div>
-                  <h3 className="mt-5 text-xl font-extrabold tracking-tight">{item.appName}</h3>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500"><span>v{item.version.replace(/^v/, '')}</span><span>·</span><span>{PLATFORM_LABELS[item.platform] || item.platform}</span></div>
-                  <p className="mt-4 line-clamp-2 text-sm leading-6 text-slate-600">{item.releaseNotes || item.fileName}</p>
-                  <div className="mt-5 rounded-xl bg-slate-50 p-3">
-                    <div className="truncate text-xs font-semibold text-slate-700">{item.fileName}</div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-500"><span>{prettySize(item.sizeBytes)}</span><span>{item.sha256 ? 'SHA-256 available' : 'Chưa có checksum'}</span></div>
-                  </div>
-                  <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-                    <span className="text-xs text-slate-500">{item.publishedAt ? new Date(item.publishedAt).toLocaleDateString('vi-VN') : 'Chưa phát hành'}</span>
-                    {item.available && item.downloadUrl ? (
-                      <a href={item.downloadUrl} className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-indigo-700"><ArrowDownToLine size={15}/> Tải xuống</a>
-                    ) : (
-                      <button disabled className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-bold text-slate-400"><ArrowDownToLine size={15}/> Chưa sẵn sàng</button>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-8 rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><FileArchive size={25}/></div>
-              <h3 className="mt-5 text-xl font-extrabold">Chưa có bản phát hành phù hợp</h3>
-              <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Tải mã nguồn vào Studio, tạo gói phát hành, rồi xuất bản lên R2. Những bản chưa có tệp thật sẽ không có nút tải hoạt động.</p>
-              <button onClick={onOpenAdmin} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-700">Mở Studio <ArrowRight size={16}/></button>
-            </div>
-          )}
-        </section>
+          <section id="security" className="mt-12 rounded-3xl border border-slate-200 bg-white p-6 sm:p-8"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck size={21}/></div><div><h2 className="font-extrabold">Tải xuống minh bạch</h2><p className="mt-1 text-xs text-slate-500">Thông tin bản phát hành đọc trực tiếp từ backend.</p></div></div><div className="mt-6 grid gap-5 sm:grid-cols-3">{[{title:'Chỉ hiện artifact thật',text:'Nút tải dựa vào object tồn tại trong R2, không tạo link tải giả.'},{title:'Thông tin tệp rõ ràng',text:'Phiên bản, nền tảng, dung lượng và checksum hiển thị khi API có dữ liệu.'},{title:'Quy trình phát hành',text:'Nguồn, build, kiểm thử và ký số được quản lý từ Studio hoặc CI.'}].map((item) => <div key={item.title}><div className="text-sm font-extrabold">{item.title}</div><p className="mt-2 text-xs leading-5 text-slate-500">{item.text}</p></div>)}</div></section>
+        </main>
+      </div>
 
-        <section id="release-process" className="border-y border-slate-200 bg-white">
-          <div className="mx-auto grid max-w-[1440px] gap-8 px-5 py-12 sm:grid-cols-3 lg:px-10">
-            {[
-              { icon: FileArchive, title: 'Đóng gói', text: 'Tạo ZIP có mã nguồn, manifest phát hành và checksum SHA-256 thực.' },
-              { icon: ShieldCheck, title: 'Kiểm tra', text: 'Đối soát metadata từ R2; ký số native phải được thực hiện bởi toolchain tương ứng.' },
-              { icon: ArrowDownToLine, title: 'Phân phối', text: 'Bản đã xuất bản được phân phối qua API và địa chỉ tải xuống của Worker.' }
-            ].map((item) => {
-              const Icon = item.icon;
-              return <div key={item.title} className="flex gap-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><Icon size={21}/></div><div><h3 className="font-extrabold">{item.title}</h3><p className="mt-2 text-sm leading-6 text-slate-500">{item.text}</p></div></div>;
-            })}
-          </div>
-        </section>
-      </main>
+      <footer className="border-t border-slate-200 bg-white"><div className="mx-auto flex max-w-[1600px] flex-col justify-between gap-3 px-5 py-6 text-xs text-slate-400 sm:flex-row sm:items-center lg:px-10"><div>© 2026 {config.brandName || 'Hendy Store'} · App discovery & software releases</div><div className="flex flex-wrap items-center gap-4"><a className="flex items-center gap-1.5 hover:text-indigo-700" href={repositoryUrl} target="_blank" rel="noreferrer"><Github size={14}/> Source code <ExternalLink size={11}/></a><button onClick={onOpenAdmin} className="flex items-center gap-1.5 font-bold text-slate-600 hover:text-indigo-700"><TerminalSquare size={14}/> Developer Studio</button></div></div></footer>
 
-      <footer className="mx-auto flex w-full max-w-[1440px] flex-col justify-between gap-3 px-5 py-8 text-xs text-slate-500 sm:flex-row sm:items-center lg:px-10">
-        <div>© 2026 Hendy Store · Release catalog</div>
-        <div className="flex flex-wrap items-center gap-4"><span className="flex items-center gap-1.5"><CheckCircle2 size={14}/> Trạng thái tải lấy từ API</span><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas" target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-indigo-600"><Github size={14}/> GitHub</a><button onClick={onOpenAdmin} className="font-semibold text-slate-700 hover:text-indigo-600">Studio quản trị</button></div>
-      </footer>
+      {selected && <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="app-details-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-t-[2rem] bg-white shadow-2xl sm:rounded-[2rem]">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-6 sm:p-8"><div className="flex min-w-0 items-center gap-4"><div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-700 text-xl font-black text-white">{initials(selected.name)}</div><div className="min-w-0"><h2 id="app-details-title" className="text-2xl font-black tracking-tight">{selected.name}</h2><p className="mt-1 text-sm text-slate-500">Phiên bản {selected.version} · {selected.platforms.map((p) => PLATFORM_LABELS[p] || p).join(' · ')}</p><p className="mt-2 text-xs text-slate-400">Cập nhật {formatDate(selected.newestDate)}</p></div></div><button onClick={() => setSelected(null)} aria-label="Đóng chi tiết" className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900"><X size={20}/></button></div>
+        <div className="max-h-[calc(92vh-110px)] overflow-y-auto p-6 sm:p-8"><h3 className="text-sm font-extrabold">Giới thiệu bản phát hành</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{selected.notes}</p><h3 className="mt-8 text-sm font-extrabold">Gói tải xuống</h3><div className="mt-3 space-y-3">{selected.artifacts.map((artifact) => <div key={artifact.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">{['android','ios'].includes(artifact.platform) ? <Smartphone size={19}/> : <Monitor size={19}/>}</div><div className="min-w-0 flex-1"><div className="text-sm font-extrabold">{PLATFORM_LABELS[artifact.platform] || artifact.platform}</div><div className="mt-1 truncate text-xs text-slate-500">{artifact.fileName}</div><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400"><span>{prettySize(artifact.sizeBytes)}</span><span>{artifact.sha256 ? 'SHA-256: ' + artifact.sha256.slice(0, 16) + '…' : 'Chưa có checksum'}</span></div></div>{artifact.available && artifact.downloadUrl ? <a href={artifact.downloadUrl} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-indigo-700"><ArrowDownToLine size={15}/> Tải xuống</a> : <span className="shrink-0 rounded-full bg-slate-100 px-3 py-2 text-[10px] font-bold text-slate-400">Chưa có tệp</span>}</div>)}</div><div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] text-slate-400"><ShieldCheck size={14} className="text-emerald-600"/> Đối chiếu checksum của tệp đã tải trước khi sử dụng.</div></div>
+      </div></div>}
     </div>
   );
 }
