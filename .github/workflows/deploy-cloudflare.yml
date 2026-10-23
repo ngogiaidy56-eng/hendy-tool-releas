@@ -31,6 +31,13 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Keep the optional Pages distribution storefront-only
+        run: |
+          # The private Admin Console is served only by the Worker after Access JWT validation.
+          rm -f dist/admin.html
+          test -s dist/index.html
+          test ! -e dist/admin.html
+
       - name: Deploy Pages Direct Upload
         uses: cloudflare/wrangler-action@v4
         with:
