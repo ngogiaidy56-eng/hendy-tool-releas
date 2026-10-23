@@ -11,7 +11,7 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "test": "tsx --test src/utils/*.test.ts",
-    "deploy:worker": "npx --yes wrangler@4 deploy --config=wrangler.toml",
+    "deploy:worker": "node scripts/prepare-worker-assets.mjs && npx --yes wrangler@4 deploy --config=wrangler.toml",
     "deploy:pages": "npx --yes wrangler@4 pages deploy dist --project-name=hendy-tool-releas --branch=main"
   },
   "dependencies": {
