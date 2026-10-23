@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hendy-web-release-${ inputs.version }
+  group: hendy-web-release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -47,24 +47,24 @@ jobs:
       - name: Package website and calculate checksums
         run: npm run package:web-release
         env:
-          RELEASE_VERSION: ${ inputs.version }
-          RELEASE_NOTES: ${ inputs.notes }
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.notes }}
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hendy-store-web-${ inputs.version }
+          name: hendy-store-web-${{ inputs.version }}
           path: |
-            release-artifacts/hendy-store-web-v${ inputs.version }.zip
-            release-artifacts/hendy-store-web-v${ inputs.version }.zip.sha256
+            release-artifacts/hendy-store-web-v${{ inputs.version }}.zip
+            release-artifacts/hendy-store-web-v${{ inputs.version }}.zip.sha256
             release-artifacts/release-summary.json
           if-no-files-found: error
           retention-days: 30
 
       - name: Validate publishing configuration
-        if: ${ inputs.publish_to_store }
+        if: ${{ inputs.publish_to_store }}
         env:
-          RELEASE_PUBLISH_TOKEN: ${ secrets.RELEASE_PUBLISH_TOKEN }
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
         run: |
           if [ -z "$RELEASE_PUBLISH_TOKEN" ]; then
             echo "::error::Add the RELEASE_PUBLISH_TOKEN GitHub Actions secret before publishing to the store."
@@ -72,11 +72,11 @@ jobs:
           fi
 
       - name: Publish artifact to Worker API and R2
-        if: ${ inputs.publish_to_store }
+        if: ${{ inputs.publish_to_store }}
         env:
-          RELEASE_PUBLISH_TOKEN: ${ secrets.RELEASE_PUBLISH_TOKEN }
-          RELEASE_VERSION: ${ inputs.version }
-          RELEASE_NOTES: ${ inputs.notes }
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.notes }}
           PUBLISH_URL: https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish
         run: |
           set -euo pipefail
