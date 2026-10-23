@@ -552,6 +552,54 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
   }
 }
 
+function adminAccessPage(status: number): Response {
+  const needsSetup = status === 503;
+  const title = needsSetup ? "Cần hoàn tất cấu hình bảo mật" : "Đăng nhập quản trị để tiếp tục";
+  const message = needsSetup
+    ? "Worker chưa được cấu hình đầy đủ Cloudflare Access. Quản trị viên cần thiết lập Team Domain, AUD và chính sách cho phép đúng tài khoản quản trị."
+    : "Yêu cầu này chưa có danh tính Cloudflare Access hợp lệ. Hãy truy cập qua ứng dụng Access đã được cấp quyền cho tài khoản quản trị.";
+  const html = `<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="same-origin">
+<title>${title} — Hendy Admin</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#090b12;color:#e2e8f0}
+*{box-sizing:border-box}body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 70% 5%,#312e8133,transparent 45%),#090b12}
+main{width:min(100%,620px);border:1px solid #ffffff18;border-radius:28px;background:linear-gradient(145deg,#151724,#0f111a);padding:clamp(24px,6vw,44px);box-shadow:0 30px 100px #0008}
+.brand{display:flex;align-items:center;gap:12px;font-size:12px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#a5b4fc}
+.mark{display:grid;place-items:center;width:46px;height:46px;border-radius:15px;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:20px;color:white;letter-spacing:0}
+.pill{display:inline-flex;align-items:center;gap:8px;margin-top:30px;border:1px solid #fbbf2433;border-radius:999px;background:#fbbf240d;padding:7px 11px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#fcd34d}
+.dot{width:7px;height:7px;border-radius:50%;background:#fbbf24}
+h1{margin:18px 0 12px;font-size:clamp(29px,5vw,42px);line-height:1.1;letter-spacing:-.045em}
+p{margin:0;color:#a1a1aa;font-size:14px;line-height:1.85}
+.panel{margin-top:24px;padding:16px;border:1px solid #ffffff12;border-radius:16px;background:#0003}
+.panel strong{display:block;font-size:12px;color:#e4e4e7}.panel code{display:block;margin-top:9px;color:#c4b5fd;font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+nav{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:12px;padding:0 16px;text-decoration:none;font-size:12px;font-weight:800}
+.primary{background:#6366f1;color:#fff}.secondary{border:1px solid #ffffff1c;color:#cbd5e1}
+small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8}
+</style>
+</head>
+<body><main>
+<div class="brand"><span class="mark">H</span><span>Hendy Admin Console<br><span style="color:#71717a;font-weight:600;letter-spacing:.08em">SECURE DEVELOPER WORKSPACE</span></span></div>
+<div class="pill"><span class="dot"></span>${needsSetup ? "Access setup required" : "Authentication required"}</div>
+<h1>${title}</h1><p>${message}</p>
+<div class="panel"><strong>Đường dẫn quản trị được bảo vệ</strong><code>/admin · /studio · /api/v1/admin/*</code><code>${needsSetup ? "CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD" : "Cf-Access-Jwt-Assertion"}</code></div>
+<nav><a class="primary" href="/">Quay về cửa hàng</a><a class="secondary" href="https://dash.cloudflare.com/" rel="noreferrer">Mở Cloudflare Dashboard ↗</a></nav>
+<small>Trang quản trị không được cung cấp từ giao diện cửa hàng công khai. Không gửi secret hoặc token vào mã nguồn, trình duyệt hay tin nhắn.</small>
+</main></body></html>`;
+  const headers = securityHeaders({ "Content-Type": "text/html; charset=utf-8" });
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  return new Response(html, { status, headers });
+}
+
 async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
   const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
   if (!expected) {
@@ -805,7 +853,7 @@ export default {
           return json({ success: false, error: "method_not_allowed" }, 405);
         }
         const denied = await verifyCloudflareAccess(request, env);
-        if (denied) return denied;
+        if (denied) return adminAccessPage(denied.status);
         if (!env.ASSETS) {
           return json({ success: false, error: "static_assets_not_configured" }, 503);
         }
