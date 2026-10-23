@@ -10,14 +10,23 @@ const fakeAssets = {
   async fetch(input: Request | string): Promise<Response> {
     const req = input instanceof Request ? input : new Request(input);
     const path = new URL(req.url).pathname;
+    if (path === "/admin.html") {
+      return new Response("<!doctype html><title>Hendy Admin Console</title><div id=\"root\"></div><script type=\"module\" src=\"/src/admin-main.tsx\"></script>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
     if (path === "/" || path === "/index.html") {
-      return new Response("<!doctype html><div id=\"root\"></div>", {
+      return new Response("<!doctype html><title>Hendy Store</title><div id=\"root\"></div>", {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
     return new Response("Not found", { status: 404 });
   },
+};
+
+
 };
 
 test("health endpoint is available without a storage bucket", async () => {
@@ -68,10 +77,26 @@ test("the root URL serves the compiled SPA index document", async () => {
   assert.match(await response.text(), /id="root"/);
 });
 
-test("client-side routes are rewritten to index.html", async () => {
+test("admin UI fails closed if Cloudflare Access variables are missing", async () => {
   const response = await worker.fetch(request("/admin"), { ASSETS: fakeAssets } satisfies Env);
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), /id="root"/);
+  assert.equal(response.status, 503);
+  const payload = await response.json() as { error: string };
+  assert.equal(payload.error, "admin_access_not_configured");
+});
+
+test("admin UI and status API reject requests without a Cloudflare Access assertion", async () => {
+  const env = {
+    ASSETS: fakeAssets,
+    CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
+    CF_ACCESS_AUD: "access-audience",
+  } satisfies Env;
+  const uiResponse = await worker.fetch(request("/admin"), env);
+  assert.equal(uiResponse.status, 401);
+  assert.equal((await uiResponse.json() as { error: string }).error, "cloudflare_access_required");
+
+  const statusResponse = await worker.fetch(request("/api/v1/admin/status"), env);
+  assert.equal(statusResponse.status, 401);
+  assert.equal((await statusResponse.json() as { error: string }).error, "cloudflare_access_required");
 });
 
 test("release manifest is available and does not claim unpublished binaries are ready", async () => {
@@ -231,19 +256,63 @@ test("storefront config endpoint returns an editable default configuration", asy
   assert.equal(payload.config.heroTitle, "Tất cả ứng dụng");
 });
 
-test("admin status endpoint never returns the configured publish token", async () => {
-  const response = await worker.fetch(request("/api/v1/admin/status"), {
-    RELEASE_PUBLISH_TOKEN: "must-not-leak",
-    CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
-    CF_ACCESS_AUD: "access-audience",
-    RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
-  } satisfies Env);
-  assert.equal(response.status, 200);
-  const text = await response.text();
-  assert.ok(!text.includes("must-not-leak"));
-  assert.match(text, /"publishSecretConfigured": true/);
-});
+test("a valid Access JWT opens the isolated admin HTML and status API without exposing secrets", async () => {
+  const teamDomain = "https://hendyteam.cloudflareaccess.com";
+  const audience = "access-audience";
+  const pair = await crypto.subtle.generateKey(
+    { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+    true,
+    ["sign", "verify"]
+  );
+  const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey) as JsonWebKey & { kid?: string };
+  publicJwk.kid = "test-access-key";
+  const encode = (value: string | Uint8Array) => {
+    const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+    const binary = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+    return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const header = encode(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "test-access-key" }));
+  const claims = encode(JSON.stringify({ iss: teamDomain, aud: audience, exp: now + 300, nbf: now - 10, iat: now }));
+  const signingInput = header + "." + claims;
+  const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(signingInput)));
+  const token = signingInput + "." + encode(signature);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/cdn-cgi/access/certs")) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { headers: { "Content-Type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const env = {
+      ASSETS: fakeAssets,
+      RELEASE_PUBLISH_TOKEN: "must-not-leak",
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: audience,
+      RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
+    } satisfies Env;
+    const uiRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/admin", {
+      headers: { "Cf-Access-Jwt-Assertion": token },
+    });
+    const uiResponse = await worker.fetch(uiRequest, env);
+    assert.equal(uiResponse.status, 200);
+    assert.match(await uiResponse.text(), /Hendy Admin Console/);
+    assert.equal(uiResponse.headers.get("cache-control"), "no-store");
+    assert.equal(uiResponse.headers.get("x-robots-tag"), "noindex, nofollow");
 
+    const statusRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/status", {
+      headers: { "Cf-Access-Jwt-Assertion": token },
+    });
+    const statusResponse = await worker.fetch(statusRequest, env);
+    assert.equal(statusResponse.status, 200);
+    const body = await statusResponse.text();
+    assert.ok(!body.includes("must-not-leak"));
+    assert.match(body, /"publishSecretConfigured": true/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("publish endpoint accepts a valid server-side CI bearer secret and stores a real artifact", async () => {
   const stored = new Map<string, { body: ArrayBuffer; customMetadata?: Record<string, string> }>();
