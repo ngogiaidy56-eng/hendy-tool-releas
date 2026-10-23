@@ -316,6 +316,12 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
     assert.equal(subdomainResponse.headers.get("x-frame-options"), "DENY");
 
     const unauthorizedToken = await makeToken("intruder@example.com");
+    const deniedUiResponse = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/admin", {
+      headers: { "Cf-Access-Jwt-Assertion": unauthorizedToken },
+    }), env);
+    assert.equal(deniedUiResponse.status, 403);
+    assert.match(await deniedUiResponse.text(), /Admin allow-list denied/);
+
     const deniedRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/status", {
       headers: { "Cf-Access-Jwt-Assertion": unauthorizedToken },
     });
