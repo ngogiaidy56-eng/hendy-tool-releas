@@ -6,6 +6,15 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // Build two independent HTML applications: the public store and the Access-gated admin console.
+    build: {
+      rollupOptions: {
+        input: [
+          path.resolve(__dirname, 'index.html'),
+          path.resolve(__dirname, 'admin.html'),
+        ],
+      },
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

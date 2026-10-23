@@ -53,7 +53,7 @@ Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.
 - `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
 - `functions/api/[[path]].ts`: optional Pages Functions API gateway. Set `BACKEND_ORIGIN=https://hendy-tool-releas.ngogiaidy56.workers.dev` in the Pages project's production environment if API paths should proxy to the Worker.
 - `server.ts`: optional Express server for Node/Render. Cloudflare Workers does not run this file.
-- `.github/workflows/deploy-cloudflare.yml`: manual workflow for the separate Pages Direct Upload project. The primary Worker deploy is handled by Cloudflare Workers Builds to avoid two production deploy systems competing over the same Worker.
+- `.github/workflows/deploy-cloudflare.yml`: manual optional Pages Direct Upload for the public storefront only; it removes `dist/admin.html` before upload. The Pages API gateway fails closed for admin routes unless `BACKEND_ORIGIN` forwards them to the authenticated primary Worker. The primary Worker deploy is handled by Cloudflare Workers Builds to avoid two production deploy systems competing over the same Worker.
 
 ## Local validation / manual deployment
 
@@ -76,8 +76,10 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` fir
 
 ## Two separate interfaces and packaging/publishing
 
-- User storefront: `/` (and `/store`) lists actual published R2 artifacts; downloads are enabled only when the API returns a real object.
-- Admin Studio: `/admin` provides source ZIP import, SemVer release metadata, browser ZIP packaging, real SHA-256 calculation, artifact upload, release history, and publish-token configuration.
+- **Storefront (public):** `/` lists only artifacts returned by the public R2 release catalog. It uses `index.html`, `src/main.tsx`, `src/App.tsx`, and `src/store.css`.
+- **Admin / Developer Console (private):** `/admin` is a separately compiled application using `admin.html`, `src/admin-main.tsx`, `src/interface/admin/StudioWorkspace.tsx`, and `src/admin.css`. It has its own HTML entrypoint, React root, styling bundle and browser navigation; it does not switch views inside the storefront SPA.
+- The Worker serves the dedicated admin document only after validating a signed Cloudflare Access JWT. Missing Access configuration returns `503`; missing/invalid credentials return `401`. The admin status API and admin manifest are also guarded. Configure an Access policy that explicitly allow-lists the admin identity or approved email/group; do not use an unrestricted “allow everyone” policy.
+- The console provides source ZIP import, SemVer metadata, browser ZIP packaging, SHA-256 calculation, artifact upload, release history, storefront branding/content controls and configuration status. It shows whether secrets are configured, never their values.
 - Studio packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`; GitHub Actions can also build and package the actual web application into a distribution ZIP. Neither path pretends to compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on an appropriate platform runner, then uploaded as artifacts.
 - `RELEASE_PUBLISH_TOKEN` is integrated server-side as a Cloudflare Worker secret and is never sent to the browser. Configure it once with `npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml` or the Cloudflare Dashboard. The UI does not ask administrators to paste the token.
 - Configure Worker variables `CF_ACCESS_TEAM_DOMAIN=https://<your-team>.cloudflareaccess.com` and `CF_ACCESS_AUD=<Access application AUD tag>`. Create a Cloudflare Access self-hosted application and protect `/admin*` plus `/api/v1/admin/*`; the Worker independently verifies the signed `Cf-Access-Jwt-Assertion` issuer, audience, expiration, and signature before changing releases/store settings. See [Cloudflare JWT validation docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
@@ -87,7 +89,7 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` fir
 
 Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow runs the Vite production build, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Configure the GitHub Actions secret `RELEASE_PUBLISH_TOKEN` and the Cloudflare Worker secret with the same value; the secret is never embedded into the UI. The direct upload API limit is 25 MB.
 
-The Admin interface uses Cloudflare Access for interactive publishing; CI uses server-to-server Bearer authentication from the GitHub Actions secret. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` and protect `/admin*` plus `/api/v1/admin/*` with an Access application before production use.
+Interactive admins authenticate through Cloudflare Access. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`; protect `/admin*`, `/admin.html`, and `/api/v1/admin/*` with an Access application and an explicit admin allow-list. The Worker re-verifies the Access JWT, so opening the private UI does not depend on a client-side route check. CI publishes server-to-server using the GitHub Actions secret `RELEASE_PUBLISH_TOKEN`; that path does not expose the token to either UI.
 
 ## Release artifacts
 

@@ -57,6 +57,19 @@ export async function onRequest(context: Context): Promise<Response> {
     }
   }
 
+  // Never emulate admin endpoints locally. If proxying to the authenticated Worker is not
+  // configured (or the upstream call failed), return a closed error instead of a fake success.
+  if (subPath === 'v1/admin' || subPath.startsWith('v1/admin/')) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'admin_backend_not_configured',
+        message: 'Admin API phải được chuyển tiếp tới Worker đã xác thực Cloudflare Access.',
+      }),
+      { status: 503, headers: { ...headers, 'Cache-Control': 'no-store' } }
+    );
+  }
+
   // --- Edge Native API Handlers ---
 
   // GET /api/health hoặc /api/v1/health
