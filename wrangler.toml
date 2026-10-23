@@ -1,20 +1,9 @@
-# Cấu hình chính thức Cloudflare Pages & Workers cho Hendy Tools Platform & App Downloader
-name = " "hendy-tool-releas"
-main = "src/worker.ts"
+# Cloudflare Pages project configuration.
+# Keep this file Pages-only. The standalone Worker uses wrangler.worker.toml.
+name = "hendy-tool-releas"
+pages_build_output_dir = "./dist"
 compatibility_date = "2026-10-23"
 
-# Cloudflare Pages Build Output
-pages_build_output_dir = "./dist"
-
-# Cấu hình Static Assets cho Workers
-[assets]
-directory = "./dist"
-binding = "ASSETS"
-
-# Biến môi trường chạy trên Edge
 [vars]
 ENVIRONMENT = "production"
 APP_NAME = "Hendy Tools Platform & App Downloader"
-RELEASE_STORAGE_BUCKET = "hendy-tool-releases"
-API_DOMAIN_ROUTING_ENDPOINT = "/api/v1/domains"
-SOURCE_CODE_ENCRYPTION = "AES-256-GCM"

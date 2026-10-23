@@ -1,4 +1,4 @@
-name: Build and deploy Hendy Server App Downloader
+name: CI - Hendy Tools Platform
 
 on:
   pull_request:
@@ -11,72 +11,30 @@ permissions:
   contents: read
 
 concurrency:
-  group: hendy-app-downloader-${{ github.ref }}
+  group: hendy-tools-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-check:
+  verify:
+    name: Type-check, test and build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22"
+
       - name: Install dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
+
       - name: Type-check
         run: npm run lint
-      - name: API smoke tests
-        run: npm run test:api
+
+      - name: Unit tests
+        run: npm test
+
       - name: Build frontend
         run: npm run build
-      - name: Upload static build
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 1
-
-  deploy-cloudflare-pages:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
-    needs: build-and-check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout (includes Pages Functions)
-        uses: actions/checkout@v4
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Install dependencies
-        run: npm install
-      - name: Build frontend
-        run: npm run build
-      - name: Deploy Cloudflare Pages and Functions
-        uses: cloudflare/wrangler-action@v4
-        with:
-          packageManager: npm
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=hendy-server-app-downloader --branch=main
-
-  deploy-cloudflare-worker:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
-    needs: build-and-check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Deploy standalone API gateway Worker
-        uses: cloudflare/wrangler-action@v4
-        with:
-          packageManager: npm
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy --config=wrangler.worker.toml
-
-  # Render auto-deploys the Node backend from this repository when main changes.
-  # DATABASE_URL, ADMIN_PASSWORD and R2 keys must be set in Render Dashboard.

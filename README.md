@@ -1,91 +1,66 @@
-# Hendy Tools Platform & App Downloader — Production Suite
+# Hendy Tools Platform & App Downloader
 
-Nền tảng chính thức phát hành phần mềm đa nền tảng **Hendy Tools** (Windows, Android, iOS) cùng bộ công cụ quản trị máy chủ **Hendy Server Studio**, hệ thống đóng gói nhị phân tự động và tích hợp **Google Drive Workspace API**.
+React 19 + Vite frontend, Cloudflare Pages Functions API, and a standalone Cloudflare Worker API entry point.
 
----
+- `src/`: React/Vite interface and the standalone Worker at `src/worker.ts`.
+- `functions/api/[[path]].ts`: Cloudflare Pages Functions routes under `/api/*`.
+- `wrangler.toml`: configuration for **Cloudflare Pages only**.
+- `wrangler.worker.toml`: configuration for the separate **Cloudflare Worker + static assets** deployment.
+- `server.ts`: Express server for a Node/Render deployment; it is **not** the runtime entry point on Cloudflare Pages/Workers.
 
-## 🏗️ Kiến Trúc Hệ Thống (Architecture)
+## Deploy to Cloudflare Workers & Pages
 
-1. **Thực thể A: Hendy Tools Distribution Portal**
-   - Phân phối chính thức bản phát hành **Hendy Tools Pro v3.1.2** (Windows x64 Setup `.exe`), Android Mobile (APK), và Apple iOS (TestFlight / Enterprise).
-   - Kiểm tra mã băm **SHA-256 Authenticode EV** bảo chứng tính nguyên bản 100%.
+The GitHub workflow `.github/workflows/deploy-cloudflare.yml` validates the app, builds `dist/`, then deploys Pages and the standalone Worker. Every push to `main` deploys both; run it manually from **Actions → Deploy to Cloudflare Pages and Workers** to choose `both`, `pages`, or `worker`.
 
-2. **Thực thể B: Cửa Hàng Ứng Dụng (Multi-App Downloader & Store)**
-   - Kho ứng dụng: **Hendy Tools Pro**, **HyperTerminal Pro**, **OmniCanvas Studio**, **VaultKey Enterprise**.
-   - Chạy thử WebAssembly trực tiếp trên trình duyệt không cần quyền Admin (`WebSandboxModal`).
-   - Tệp manifest chuẩn hóa byte checksum `manifest.json`.
+### 1. Create the Pages project once
 
-3. **Thực thể C: Bảng Quản Trị Máy Chủ (Hendy Server Admin Panel Plus)**
-   - Giám sát phần cứng: CPU, RAM, ổ cứng SSD NVMe, lưu lượng Cloudflare R2 thời gian thực.
-   - Quản trị dịch vụ máy chủ, tiến trình đang chạy, cổng mạng TCP/UDP và Web CLI Terminal.
-   - Xuất / Nhập bản sao lưu cấu hình toàn bộ hệ thống (`System Snapshot JSON`).
+In Cloudflare Dashboard → **Workers & Pages**, create/connect a Pages project named exactly:
 
-4. **Thực thể D: Studio & Pipeline Đóng Gói Nhị Phân**
-   - Trình duyệt và chỉnh sửa mã nguồn cốt lõi (Rust + Tauri, C++, Go, Wasm).
-   - Đóng gói đa nền tảng: `.exe`, `.msi`, `.dmg`, `.pkg`, `.AppImage`, `.deb`, `.apk`, `.wasm` qua JSZip.
-   - Quét mã độc SAST, quản lý chứng chỉ ký số trong két an toàn.
+`hendy-tool-releas`
 
-5. **Tích hợp Google Drive Cloud Hub (Google Workspace API)**
-   - Đăng nhập bảo mật Google với Google Brand Button.
-   - Sao lưu tức thời cấu hình hệ thống, snapshot và manifest lên Google Drive cá nhân.
-   - Lưu trữ trực tiếp các tệp nhị phân đã build sang Drive với liên kết xem và tải tức thì.
+Use the repository root as the project root. For a dashboard-managed build, set:
 
----
+- Build command: `npm run build`
+- Build output directory: `dist`
+- Production branch: `main`
+- Node.js version: `22` (if the setting is shown)
 
-## 🚀 Triển Khai Lên Cloudflare Workers & Pages Qua GitHub
+The GitHub workflow deploys Pages using Wrangler and expects this Pages project to exist. The separate Worker is named `hendy-tool-releas-api`.
 
-### 1. Chuẩn Bị Kho Lưu Trữ GitHub
-```bash
-git init
-git add .
-git commit -m "feat: Hendy Tools Platform & App Downloader production release"
-git branch -M main
-git remote add origin https://github.com/hendyngo-servers/HendyToolsPlatform.git
-git push -u origin main --force
-```
+### 2. Add GitHub Actions secrets
 
-### 2. Cấu Hình Tự Động Triển Khai (CI/CD GitHub Actions)
-Dự án đã tích hợp sẵn 4 luồng GitHub Actions trong `.github/workflows/`:
-- **`ci-deploy.yml`**: Kiểm tra TypeScript (`tsc --noEmit`), chạy 20 bài kiểm thử đơn vị (`node:test`), build và triển khai tự động lên Cloudflare Pages.
-- **`deploy-cloudflare.yml`**: Triển khai trực tiếp frontend và Pages Functions lên Cloudflare Pages bằng `wrangler-action`.
-- **`build-and-publish-release.yml`**: Ma trận build tự động cho Windows, macOS, Linux và Android.
-- **`deploy-render.yml`**: Tự động kích hoạt deploy trên Render.com Web Service khi có push mới.
+In GitHub → repository **Settings → Secrets and variables → Actions → Secrets**, add:
 
-### 3. Cấu Hình Secret Trên GitHub
-Vào **Settings → Secrets and variables → Actions** trên repository GitHub của bạn và thêm:
-- `CLOUDFLARE_API_TOKEN`: Token tài khoản Cloudflare có quyền chỉnh sửa Pages và Workers.
-- `CLOUDFLARE_ACCOUNT_ID`: Mã định danh Account ID trên Cloudflare Dashboard.
-- `RENDER_DEPLOY_HOOK_URL`: (Tùy chọn) Webhook URL của dịch vụ Render.com.
+- `CLOUDFLARE_API_TOKEN`: a token scoped to the intended Cloudflare account with **Cloudflare Pages: Edit** and **Workers Scripts: Edit** permissions.
+- `CLOUDFLARE_ACCOUNT_ID`: the Account ID shown in the Cloudflare Dashboard.
 
-### 4. Triển Khai Thủ Công Bằng Wrangler CLI (Nếu cần)
-```bash
-# Đăng nhập Cloudflare
-npx wrangler login
+Do not put API tokens or credentials in `wrangler.toml`, `wrangler.worker.toml`, or frontend environment variables.
 
-# Build sản phẩm
-npm run build
+### 3. Optional backend proxy
 
-# Triển khai lên Cloudflare Pages
-npx wrangler pages deploy dist --project-name=hendy-tools-platform --branch=main
-```
+The Pages Function can forward API requests to a Node backend when `BACKEND_ORIGIN` is set. Configure it in the Pages project’s **Settings → Variables and Secrets** for the relevant environment. Use the origin only, for example `https://your-service.onrender.com`; do not append an API route.
 
----
+Without `BACKEND_ORIGIN`, Pages Functions use the repository’s local edge fallback handlers. Cloudflare will not start `server.ts` or run Express.
 
-## 💻 Chạy Thử Nghiệm Tại Môi Trường Cục Bộ (Local Development)
+### 4. Local validation and manual deployment
+
+Requires Node.js 22 or newer.
 
 ```bash
-# Cài đặt thư viện
 npm install
-
-# Khởi chạy máy chủ phát triển (Express + Vite HMR trên cổng 3000)
-npm run dev
-
-# Chạy kiểm thử đơn vị
-npx tsx --test src/utils/manifest.test.ts src/utils/packaging.test.ts src/utils/workersPagesConfig.test.ts
-
-# Kiểm tra cú pháp và loại dữ liệu
 npm run lint
-
-# Đóng gói xuất xưởng
+npm test
 npm run build
+
+# Deploy Pages (Pages project must already exist)
+npx wrangler pages deploy dist --project-name=hendy-tool-releas --branch=main --config=wrangler.toml
+
+# Deploy the standalone Worker and the same dist/ assets
+npx wrangler deploy --config=wrangler.worker.toml
 ```
+
+You can also use **Workers & Pages → Create → Pages / Worker** in the Cloudflare Dashboard. Keep the Pages and Worker configurations separate; do not use the Pages config for `wrangler deploy`.
+
+## Important release-data note
+
+The current API source contains sample release metadata and placeholder download URLs/checksums. A successful Cloudflare deployment publishes the website/API code, but it does not manufacture or sign Windows installers/APKs. Before advertising a binary as verified or production-ready, publish real artifacts (for example to an R2 bucket), calculate SHA-256 from those exact files, and update the manifest/download handlers accordingly.
