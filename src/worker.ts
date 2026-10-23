@@ -132,9 +132,8 @@ async function releasesResponse(request: Request, env: Env): Promise<Response> {
         minSupportedVersion: release.minSupportedVersion,
         releaseNotes: release.releaseNotes,
         downloadUrl: available
-          ? `${origin}/api/releases/download?platform=${release.platform}&channel=${release.channel}`
+          ? `${origin}/api/v1/downloads/artifacts/${encodeURIComponent(release.fileName)}`
           : null,
-        storageKey: undefined,
       };
     })
   );
@@ -159,11 +158,24 @@ async function downloadRelease(request: Request, env: Env): Promise<Response> {
   }
 
   const url = new URL(request.url);
-  const platform = url.searchParams.get("platform");
-  const channel = url.searchParams.get("channel") || "stable";
-  const release = RELEASE_CATALOG.find(
-    (candidate) => candidate.platform === platform && candidate.channel === channel
-  );
+  const artifactPrefix = "/api/v1/downloads/artifacts/";
+  let release: ReleaseRecord | undefined;
+
+  if (url.pathname.startsWith(artifactPrefix)) {
+    let requestedFile = "";
+    try {
+      requestedFile = decodeURIComponent(url.pathname.slice(artifactPrefix.length));
+    } catch {
+      return json({ success: false, error: "invalid_artifact_name" }, 400);
+    }
+    release = RELEASE_CATALOG.find((candidate) => candidate.fileName === requestedFile);
+  } else {
+    const platform = url.searchParams.get("platform");
+    const channel = url.searchParams.get("channel") || "stable";
+    release = RELEASE_CATALOG.find(
+      (candidate) => candidate.platform === platform && candidate.channel === channel
+    );
+  }
 
   if (!release) {
     return json({
@@ -196,6 +208,50 @@ async function downloadRelease(request: Request, env: Env): Promise<Response> {
     return new Response(null, { status: 200, headers });
   }
   return new Response(object.body, { status: 200, headers });
+}
+
+
+async function manifestResponse(request: Request, env: Env): Promise<Response> {
+  const origin = baseUrl(request, env);
+  const artifactEntries = await Promise.all(
+    RELEASE_CATALOG.map(async (release) => {
+      const metadata = env.RELEASES_BUCKET
+        ? await env.RELEASES_BUCKET.head(release.objectKey)
+        : null;
+      const sha256 = sha256From(metadata);
+      const available = metadata !== null;
+      return {
+        id: `release-${release.platform}-${release.version}`,
+        filename: release.fileName,
+        version: release.version,
+        platform: release.platform,
+        format: release.fileName.slice(release.fileName.lastIndexOf(".")),
+        arch: release.platform === "windows" ? "x86_64" : "arm64",
+        sizeBytes: metadata?.size ?? null,
+        sha256,
+        url: available ? `${origin}/api/v1/downloads/artifacts/${encodeURIComponent(release.fileName)}` : null,
+        uploadedAt: metadata?.customMetadata?.publishedAt ?? null,
+        contentType: contentType(release.fileName, metadata?.httpMetadata?.contentType),
+        available,
+        verified: sha256 !== null,
+      };
+    })
+  );
+  return json({
+    schemaVersion: "1.0.0",
+    generatedAt: new Date().toISOString(),
+    repository: "https://github.com/ngogiaidy56-eng/hendy-tool-releas",
+    app: {
+      id: "hendy-tools-pro",
+      name: "Hendy Tools Pro",
+      slug: "hendy-tools",
+      latestVersion: "3.2.0",
+      publisher: "Hendy Tools",
+    },
+    totalArtifacts: artifactEntries.length,
+    artifacts: artifactEntries,
+    note: "Các artifact chỉ được coi là đã phát hành khi tồn tại trong R2.",
+  });
 }
 
 async function routeApi(request: Request, env: Env): Promise<Response | null> {
@@ -242,7 +298,12 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
     return releasesResponse(request, env);
   }
 
-  if (path === "/api/releases/download" || path === "/api/v1/releases/download") {
+  if (path === "/api/v1/public/manifest.json" || path === "/api/v1/admin/manifest.json" || path === "/api/v1/manifest.json") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    return manifestResponse(request, env);
+  }
+
+  if (path === "/api/releases/download" || path === "/api/v1/releases/download" || path.startsWith("/api/v1/downloads/artifacts/")) {
     if (method !== "GET" && method !== "HEAD") {
       return json({ success: false, error: "method_not_allowed" }, 405);
     }
