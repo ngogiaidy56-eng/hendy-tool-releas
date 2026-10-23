@@ -88,3 +88,56 @@ test("artifact URL is routed to the release storage handler", async () => {
   const payload = await response.json() as { error: string };
   assert.equal(payload.error, "release_storage_not_configured");
 });
+
+test("published R2 artifacts appear in the manifest with their real SHA-256", async () => {
+  const sha256 = "a".repeat(64);
+  const storage = {
+    async head() {
+      return { size: 4, customMetadata: { sha256, publishedAt: "2026-10-23T00:00:00.000Z" } };
+    },
+    async get() {
+      return {
+        size: 4,
+        customMetadata: { sha256 },
+        httpMetadata: { contentType: "application/octet-stream" },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("test"));
+            controller.close();
+          },
+        }),
+      };
+    },
+  };
+  const response = await worker.fetch(request("/api/v1/public/manifest.json"), { RELEASES_BUCKET: storage } satisfies Env);
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { artifacts: Array<{ available: boolean; verified: boolean; sha256: string | null }> };
+  assert.ok(payload.artifacts.every((artifact) => artifact.available && artifact.verified && artifact.sha256 === sha256));
+});
+
+test("published artifact streams from R2 with download headers", async () => {
+  const sha256 = "b".repeat(64);
+  const storage = {
+    async head() {
+      return { size: 4, customMetadata: { sha256 } };
+    },
+    async get() {
+      return {
+        size: 4,
+        customMetadata: { sha256 },
+        httpMetadata: { contentType: "application/octet-stream" },
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("test"));
+            controller.close();
+          },
+        }),
+      };
+    },
+  };
+  const response = await worker.fetch(request("/api/v1/downloads/artifacts/HendyToolsPro-3.2.0-Setup.exe"), { RELEASES_BUCKET: storage } satisfies Env);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-artifact-sha256"), sha256);
+  assert.equal(response.headers.get("content-disposition"), 'attachment; filename="HendyToolsPro-3.2.0-Setup.exe"');
+  assert.equal(await response.text(), "test");
+});
