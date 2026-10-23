@@ -28,8 +28,10 @@ Cloudflare account authorization is an interactive step and must be approved in 
 5. Set **Build command** to:
 
    ```bash
-   npm install --no-audit --no-fund && npm run build
+   npm run build
    ```
+
+   Workers Builds installs project dependencies before running this command. Do not repeat `npm install` in the build command; keep one package-manager install step so stale dependency trees are not mixed.
 
 6. Set **Deploy command** to:
 
