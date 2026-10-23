@@ -36,6 +36,22 @@ In GitHub → repository **Settings → Secrets and variables → Actions**, set
 - `CLOUDFLARE_API_TOKEN`: token with Cloudflare Pages Edit, Workers Scripts Edit and R2 Storage Edit permissions for the intended account.
 - `CLOUDFLARE_ACCOUNT_ID`: Account ID from Cloudflare Dashboard.
 
+
+## Alternative: Cloudflare-native build (when GitHub Actions runners are unavailable)
+
+Cloudflare Workers Builds can build and deploy this Worker directly on Cloudflare when a Git repository is connected. This avoids relying on a GitHub-hosted runner for the Worker deployment. See the [official Workers Builds guide](https://developers.cloudflare.com/workers/ci-cd/builds/).
+
+1. In [Workers & Pages](https://dash.cloudflare.com/918ff2f016938fc978ed23b96505b21e/workers-and-pages), open the existing Worker named `hendy-tool-releas`.
+2. Open **Settings → Builds → Connect** and connect `ngogiaidy56-eng/hendy-tool-releas`, production branch `main`.
+3. Before deploying, create the R2 bucket named `hendy-tool-releases` in Cloudflare R2 if it does not exist. The Worker configuration binds it as `RELEASES_BUCKET`.
+4. Set the Build command to `npm install --no-audit --no-fund && npm run build`.
+5. Set the Deploy command to `npx wrangler@4 deploy --config=wrangler.worker.toml`.
+6. Save the configuration and push a commit to `main`. Cloudflare should build and deploy the Worker using the exact name in `wrangler.worker.toml`; the target hostname is `https://hendy-tool-releas.ngogiaidy56.workers.dev/`.
+
+Cloudflare requires the Worker dashboard name and the Wrangler `name` setting to match. If the deployment page reports a missing binding or bucket, check the R2 bucket exists and the binding is named exactly `RELEASES_BUCKET`.
+
+For Pages, use the existing Pages project and keep its current deployment mode. A Direct Upload Pages project cannot be converted to Git integration in place; continue deploying it with Wrangler Direct Upload or create a separate Git-integrated Pages project.
+
 ## Cloudflare Dashboard setup
 
 1. Open [Workers & Pages](https://dash.cloudflare.com/918ff2f016938fc978ed23b96505b21e/workers-and-pages).
