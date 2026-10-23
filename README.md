@@ -78,10 +78,16 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` fir
 
 - User storefront: `/` (and `/store`) lists actual published R2 artifacts; downloads are enabled only when the API returns a real object.
 - Admin Studio: `/admin` provides source ZIP import, SemVer release metadata, browser ZIP packaging, real SHA-256 calculation, artifact upload, release history, and publish-token configuration.
-- Browser packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`. It does not compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on the corresponding CI runner, then uploaded as artifacts.
+- Studio packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`; GitHub Actions can also build and package the actual web application into a distribution ZIP. Neither path pretends to compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on an appropriate platform runner, then uploaded as artifacts.
 - `RELEASE_PUBLISH_TOKEN` is integrated server-side as a Cloudflare Worker secret and is never sent to the browser. Configure it once with `npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml` or the Cloudflare Dashboard. The UI does not ask administrators to paste the token.
 - Configure Worker variables `CF_ACCESS_TEAM_DOMAIN=https://<your-team>.cloudflareaccess.com` and `CF_ACCESS_AUD=<Access application AUD tag>`. Create a Cloudflare Access self-hosted application and protect `/admin*` plus `/api/v1/admin/*`; the Worker independently verifies the signed `Cf-Access-Jwt-Assertion` issuer, audience, expiration, and signature before changing releases/store settings. See [Cloudflare JWT validation docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 - The direct upload endpoint currently accepts files up to 25 MB; larger binaries need a presigned/multipart upload service. Do not place `RELEASE_PUBLISH_TOKEN` in the repository, frontend bundle, or browser storage.
+
+## Build and publish a real web release
+
+Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow runs the Vite production build, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Configure the GitHub Actions secret `RELEASE_PUBLISH_TOKEN` and the Cloudflare Worker secret with the same value; the secret is never embedded into the UI. The direct upload API limit is 25 MB.
+
+The Admin interface uses Cloudflare Access for interactive publishing; CI uses server-to-server Bearer authentication from the GitHub Actions secret. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` and protect `/admin*` plus `/api/v1/admin/*` with an Access application before production use.
 
 ## Release artifacts
 

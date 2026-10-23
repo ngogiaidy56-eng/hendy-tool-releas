@@ -12,7 +12,8 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test src/utils/*.test.ts",
     "deploy:worker": "node scripts/prepare-worker-assets.mjs && npx --yes wrangler@4 deploy --config=wrangler.toml",
-    "deploy:pages": "npx --yes wrangler@4 pages deploy dist --project-name=hendy-tool-releas --branch=main"
+    "deploy:pages": "npx --yes wrangler@4 pages deploy dist --project-name=hendy-tool-releas --branch=main",
+    "package:web-release": "node scripts/package-web-release.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
