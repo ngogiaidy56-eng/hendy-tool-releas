@@ -539,11 +539,6 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
     return json({ success: false, error: "access_claims_invalid", message: "Access JWT hết hạn hoặc không khớp issuer/audience." }, 401);
   }
 
-  const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
-  if (!email || !allowedAdminEmails.includes(email)) {
-    return json({ success: false, error: "admin_identity_not_allowed", message: "Tài khoản Cloudflare Access này chưa được cấp quyền quản trị." }, 403);
-  }
-
   try {
     const keyResponse = await fetch(teamDomain + "/cdn-cgi/access/certs", { headers: { Accept: "application/json" } });
     if (!keyResponse.ok) throw new Error("Could not load Access signing keys");
@@ -555,6 +550,11 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
     const sigBytes = Uint8Array.from(atob(encodedSig + "=".repeat((4 - encodedSig.length % 4) % 4)), (character) => character.charCodeAt(0));
     const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sigBytes, new TextEncoder().encode(parts[0] + "." + parts[1]));
     if (!valid) throw new Error("JWT signature did not verify");
+    // Only trust identity claims after the JWT signature has been verified.
+    const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+    if (!email || !allowedAdminEmails.includes(email)) {
+      return json({ success: false, error: "admin_identity_not_allowed", message: "Tài khoản Cloudflare Access này chưa được cấp quyền quản trị." }, 403);
+    }
     return null;
   } catch (error) {
     console.error("Cloudflare Access validation error", error);
@@ -564,10 +564,15 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
 
 function adminAccessPage(status: number): Response {
   const needsSetup = status === 503;
-  const title = needsSetup ? "Cần hoàn tất cấu hình bảo mật" : "Đăng nhập quản trị để tiếp tục";
+  const identityDenied = status === 403;
+  const title = needsSetup
+    ? "Cần hoàn tất cấu hình bảo mật"
+    : identityDenied ? "Tài khoản chưa được cấp quyền quản trị" : "Đăng nhập quản trị để tiếp tục";
   const message = needsSetup
-    ? "Worker chưa được cấu hình đầy đủ Cloudflare Access. Quản trị viên cần thiết lập Team Domain, AUD và chính sách cho phép đúng tài khoản quản trị."
-    : "Yêu cầu này chưa có danh tính Cloudflare Access hợp lệ. Hãy truy cập qua ứng dụng Access đã được cấp quyền cho tài khoản quản trị.";
+    ? "Worker chưa được cấu hình đầy đủ Cloudflare Access. Quản trị viên cần thiết lập Team Domain, AUD và danh sách email quản trị được phép."
+    : identityDenied
+      ? "Danh tính đã được xác minh nhưng email chưa nằm trong danh sách CF_ACCESS_ADMIN_EMAILS được chủ hệ thống cho phép."
+      : "Yêu cầu này chưa có danh tính Cloudflare Access hợp lệ. Hãy truy cập qua ứng dụng Access đã được cấp quyền cho tài khoản quản trị.";
   const html = `<!doctype html>
 <html lang="vi">
 <head>
@@ -596,9 +601,9 @@ small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8
 </head>
 <body><main>
 <div class="brand"><span class="mark">H</span><span>Hendy Admin Console<br><span style="color:#71717a;font-weight:600;letter-spacing:.08em">SECURE DEVELOPER WORKSPACE</span></span></div>
-<div class="pill"><span class="dot"></span>${needsSetup ? "Access setup required" : "Authentication required"}</div>
+<div class="pill"><span class="dot"></span>${needsSetup ? "Access setup required" : identityDenied ? "Admin allow-list denied" : "Authentication required"}</div>
 <h1>${title}</h1><p>${message}</p>
-<div class="panel"><strong>Đường dẫn quản trị được bảo vệ</strong><code>/admin · /studio · /api/v1/admin/*</code><code>${needsSetup ? "CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD" : "Cf-Access-Jwt-Assertion"}</code></div>
+<div class="panel"><strong>Đường dẫn quản trị được bảo vệ</strong><code>/admin · /studio · /api/v1/admin/*</code><code>${needsSetup ? "CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD + CF_ACCESS_ADMIN_EMAILS" : identityDenied ? "Email is not in CF_ACCESS_ADMIN_EMAILS" : "Cf-Access-Jwt-Assertion"}</code></div>
 <nav><a class="primary" href="/">Quay về cửa hàng</a><a class="secondary" href="https://dash.cloudflare.com/" rel="noreferrer">Mở Cloudflare Dashboard ↗</a></nav>
 <small>Trang quản trị không được cung cấp từ giao diện cửa hàng công khai. Không gửi secret hoặc token vào mã nguồn, trình duyệt hay tin nhắn.</small>
 </main></body></html>`;
