@@ -74,11 +74,13 @@ test("the root URL serves the compiled SPA index document", async () => {
   assert.match(await response.text(), /id="root"/);
 });
 
-test("admin UI fails closed if Cloudflare Access variables are missing", async () => {
+test("admin UI shows a private setup page if Cloudflare Access variables are missing", async () => {
   const response = await worker.fetch(request("/admin"), { ASSETS: fakeAssets } satisfies Env);
   assert.equal(response.status, 503);
-  const payload = await response.json() as { error: string };
-  assert.equal(payload.error, "admin_access_not_configured");
+  assert.match(response.headers.get("content-type") || "", /text\\/html/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("x-robots-tag"), "noindex, nofollow");
+  assert.match(await response.text(), /Access setup required/);
 });
 
 test("admin UI and status API reject requests without a Cloudflare Access assertion", async () => {
@@ -89,7 +91,8 @@ test("admin UI and status API reject requests without a Cloudflare Access assert
   } satisfies Env;
   const uiResponse = await worker.fetch(request("/admin"), env);
   assert.equal(uiResponse.status, 401);
-  assert.equal((await uiResponse.json() as { error: string }).error, "cloudflare_access_required");
+  assert.match(uiResponse.headers.get("content-type") || "", /text\\/html/);
+  assert.match(await uiResponse.text(), /Authentication required/);
 
   const statusResponse = await worker.fetch(request("/api/v1/admin/status"), env);
   assert.equal(statusResponse.status, 401);
