@@ -47,6 +47,7 @@ export interface Env {
   RELEASE_PUBLISH_TOKEN?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
+  CF_ACCESS_ADMIN_EMAILS?: string;
 }
 
 type ReleaseRecord = {
@@ -498,11 +499,15 @@ function decodeJwtPart(value: string): Record<string, unknown> | null {
 async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
   const expectedAudience = env.CF_ACCESS_AUD?.trim();
-  if (!teamDomain || !expectedAudience) {
+  const allowedAdminEmails = (env.CF_ACCESS_ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  if (!teamDomain || !expectedAudience || allowedAdminEmails.length === 0) {
     return json({
       success: false,
       error: "admin_access_not_configured",
-      message: "Cần cấu hình CF_ACCESS_TEAM_DOMAIN và CF_ACCESS_AUD để bật xác thực Cloudflare Access.",
+      message: "Cần cấu hình CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD và CF_ACCESS_ADMIN_EMAILS (danh sách email quản trị cho phép).",
     }, 503);
   }
   try {
@@ -532,6 +537,11 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
   if (claims.iss !== teamDomain || !audMatches || typeof claims.exp !== "number" || claims.exp <= now ||
       (typeof claims.nbf === "number" && claims.nbf > now)) {
     return json({ success: false, error: "access_claims_invalid", message: "Access JWT hết hạn hoặc không khớp issuer/audience." }, 401);
+  }
+
+  const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+  if (!email || !allowedAdminEmails.includes(email)) {
+    return json({ success: false, error: "admin_identity_not_allowed", message: "Tài khoản Cloudflare Access này chưa được cấp quyền quản trị." }, 403);
   }
 
   try {
@@ -635,7 +645,8 @@ async function adminStatusResponse(request: Request, env: Env): Promise<Response
     success: true,
     storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
     publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
-    accessConfigured: Boolean(env.CF_ACCESS_TEAM_DOMAIN?.trim() && env.CF_ACCESS_AUD?.trim()),
+    accessConfigured: Boolean(env.CF_ACCESS_TEAM_DOMAIN?.trim() && env.CF_ACCESS_AUD?.trim() && (env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
+    adminAllowlistConfigured: Boolean((env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
     nativeBuilders: {
       windows: "ci-runner-required",
       android: "android-sdk-required",
