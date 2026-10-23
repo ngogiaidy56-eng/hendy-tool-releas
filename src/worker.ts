@@ -68,8 +68,6 @@ const RELEASE_CATALOG: ReleaseRecord[] = [
   },
 ];
 
-const DEFAULT_BASE_URL = "https://hendy-tool-releas.ngogiaidy56.workers.dev";
-
 function baseUrl(request: Request, env: Env): string {
   const configured = env.PUBLIC_BASE_URL?.trim();
   return (configured || new URL(request.url).origin).replace(/\/$/, "");
@@ -341,7 +339,7 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
       fileSizeBytes: metadata?.size ?? null,
       sha256: sha256From(metadata),
       downloadUrl: available
-        ? `${baseUrl(request, env)}/api/releases/download?platform=${release.platform}&channel=${release.channel}`
+        ? `${baseUrl(request, env)}/api/v1/downloads/artifacts/${encodeURIComponent(release.fileName)}`
         : null,
     });
   }
