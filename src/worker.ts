@@ -843,7 +843,11 @@ export default {
 
     try {
       // Admin is served from its own HTML entrypoint and fails closed until Cloudflare Access is configured.
+      const host = url.hostname.toLowerCase();
+      const adminHost = /^(admin|studio|serverplus|admin-plus)\\./.test(host);
+      const adminRootPath = url.pathname === "/" || url.pathname === "/index.html";
       const adminUiPath =
+        (adminHost && adminRootPath) ||
         url.pathname === "/admin" || url.pathname === "/admin/" ||
         url.pathname.startsWith("/admin/") || url.pathname === "/admin.html" ||
         url.pathname === "/studio" || url.pathname === "/studio/" ||
