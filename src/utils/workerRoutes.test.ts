@@ -26,9 +26,6 @@ const fakeAssets = {
   },
 };
 
-
-};
-
 test("health endpoint is available without a storage bucket", async () => {
   const response = await worker.fetch(request("/healthz"), { APP_NAME: "Hendy Test" } satisfies Env);
   assert.equal(response.status, 200);
