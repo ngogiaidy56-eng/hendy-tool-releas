@@ -1,5 +1,5 @@
 # Cấu hình chính thức Cloudflare Pages & Workers cho Hendy Tools Platform & App Downloader
-name = "hendy-app-store"
+name = " "hendy-tool-releas"
 main = "src/worker.ts"
 compatibility_date = "2026-10-23"
 
