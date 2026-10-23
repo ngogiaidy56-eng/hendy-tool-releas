@@ -47,8 +47,9 @@ Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.
 ## Repository deployment files
 
 - `src/worker.ts`: Worker request router for the frontend, health checks, API metadata, release listing, update checks, manifests and R2 artifact delivery.
-- `wrangler.toml`: **canonical Worker configuration** for Cloudflare Workers Builds. This is the file used by `npm run deploy:worker`.
-- `wrangler.worker.toml`: compatibility copy of the Worker config for older manual commands. Prefer the root `wrangler.toml` for Workers Builds.
+- `wrangler.toml`: **canonical Worker configuration** for Cloudflare Workers Builds. This is the file used by `npm run deploy:worker`; Worker assets are read from `.worker-dist/`.
+- `scripts/prepare-worker-assets.mjs`: prepares `.worker-dist/` from `dist/` and removes only the Pages `_redirects` catch-all rewrite, which Cloudflare Workers rejects as a redirect loop. The original `dist/` remains unchanged for Pages deployment.
+- `wrangler.worker.toml`: compatibility copy of the Worker config for older manual commands. It also points to `.worker-dist/`; prefer the root `wrangler.toml` for Workers Builds.
 - `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
 - `functions/api/[[path]].ts`: optional Pages Functions API gateway. Set `BACKEND_ORIGIN=https://hendy-tool-releas.ngogiaidy56.workers.dev` in the Pages project's production environment if API paths should proxy to the Worker.
 - `server.ts`: optional Express server for Node/Render. Cloudflare Workers does not run this file.
@@ -56,7 +57,7 @@ Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.
 
 ## Local validation / manual deployment
 
-Requires Node.js 22+.
+Requires Node.js 22+. The `public/_redirects` rule is retained in `dist/` for Pages. Worker deployment creates a separate `.worker-dist/` without that Pages-only file, while Wrangler's `not_found_handling = "single-page-application"` provides Worker-side SPA fallback.
 
 ```bash
 npm install
