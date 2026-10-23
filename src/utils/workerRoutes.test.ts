@@ -301,6 +301,14 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
     assert.equal(uiResponse.headers.get("cache-control"), "no-store");
     assert.equal(uiResponse.headers.get("x-robots-tag"), "noindex, nofollow");
 
+    const subdomainRequest = new Request("https://admin.example.com/", {
+      headers: { "Cf-Access-Jwt-Assertion": token },
+    });
+    const subdomainResponse = await worker.fetch(subdomainRequest, env);
+    assert.equal(subdomainResponse.status, 200);
+    assert.match(await subdomainResponse.text(), /Hendy Admin Console/);
+    assert.equal(subdomainResponse.headers.get("x-frame-options"), "DENY");
+
     const statusRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/status", {
       headers: { "Cf-Access-Jwt-Assertion": token },
     });
