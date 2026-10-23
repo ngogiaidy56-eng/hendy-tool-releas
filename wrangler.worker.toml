@@ -1,5 +1,5 @@
-# Single public Worker serving the UI and edge API.
-# Deployment name determines the workers.dev hostname.
+# Canonical Wrangler configuration used by Cloudflare Workers Builds.
+# Keep the Worker name exactly "hendy-tool-releas" to retain its workers.dev URL.
 name = "hendy-tool-releas"
 main = "./src/worker.ts"
 compatibility_date = "2026-10-23"
