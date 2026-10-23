@@ -580,7 +580,9 @@ async function storefrontConfigResponse(env: Env): Promise<Response> {
   }
 }
 
-async function adminStatusResponse(env: Env): Promise<Response> {
+async function adminStatusResponse(request: Request, env: Env): Promise<Response> {
+  const denied = await verifyCloudflareAccess(request, env);
+  if (denied) return denied;
   return json({
     success: true,
     storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
@@ -658,7 +660,14 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
     return releasesResponse(request, env);
   }
 
-  if (path === "/api/v1/public/manifest.json" || path === "/api/v1/admin/manifest.json" || path === "/api/v1/manifest.json") {
+  if (path === "/api/v1/admin/manifest.json") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    const denied = await verifyCloudflareAccess(request, env);
+    if (denied) return denied;
+    return manifestResponse(request, env);
+  }
+
+  if (path === "/api/v1/public/manifest.json" || path === "/api/v1/manifest.json") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
     return manifestResponse(request, env);
   }
@@ -714,7 +723,7 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
 
   if (path === "/api/v1/admin/status") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
-    return adminStatusResponse(env);
+    return adminStatusResponse(request, env);
   }
 
   if (path === "/api/v1/admin/store-config") {
@@ -785,6 +794,37 @@ export default {
     }
 
     try {
+      // Admin is served from its own HTML entrypoint and fails closed until Cloudflare Access is configured.
+      const adminUiPath =
+        url.pathname === "/admin" || url.pathname === "/admin/" ||
+        url.pathname.startsWith("/admin/") || url.pathname === "/admin.html" ||
+        url.pathname === "/studio" || url.pathname === "/studio/" ||
+        url.pathname.startsWith("/studio/");
+      if (adminUiPath) {
+        if (method !== "GET" && method !== "HEAD") {
+          return json({ success: false, error: "method_not_allowed" }, 405);
+        }
+        const denied = await verifyCloudflareAccess(request, env);
+        if (denied) return denied;
+        if (!env.ASSETS) {
+          return json({ success: false, error: "static_assets_not_configured" }, 503);
+        }
+        const adminDocumentUrl = new URL("/admin.html", url);
+        const assetResponse = await env.ASSETS.fetch(new Request(adminDocumentUrl, {
+          method: "GET",
+          headers: request.headers,
+        }));
+        const headers = securityHeaders(assetResponse.headers);
+        headers.set("Cache-Control", "no-store");
+        headers.set("X-Robots-Tag", "noindex, nofollow");
+        headers.set("X-Frame-Options", "DENY");
+        return new Response(method === "HEAD" ? null : assetResponse.body, {
+          status: assetResponse.status,
+          statusText: assetResponse.statusText,
+          headers,
+        });
+      }
+
       const apiResponse = await routeApi(request, env);
       if (apiResponse) return apiResponse;
 
