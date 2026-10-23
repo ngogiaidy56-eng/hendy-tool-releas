@@ -88,6 +88,7 @@ test("admin UI and status API reject requests without a Cloudflare Access assert
     ASSETS: fakeAssets,
     CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
     CF_ACCESS_AUD: "access-audience",
+    CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
   } satisfies Env;
   const uiResponse = await worker.fetch(request("/admin"), env);
   assert.equal(uiResponse.status, 401);
@@ -239,6 +240,7 @@ test("publish endpoint rejects requests without a Cloudflare Access assertion", 
     RELEASE_PUBLISH_TOKEN: "configured-secret",
     CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
     CF_ACCESS_AUD: "access-audience",
+    CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
     RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; } },
   } satisfies Env);
   assert.equal(response.status, 401);
@@ -273,10 +275,13 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
   };
   const now = Math.floor(Date.now() / 1000);
   const header = encode(JSON.stringify({ alg: "RS256", typ: "JWT", kid: "test-access-key" }));
-  const claims = encode(JSON.stringify({ iss: teamDomain, aud: audience, exp: now + 300, nbf: now - 10, iat: now }));
-  const signingInput = header + "." + claims;
-  const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(signingInput)));
-  const token = signingInput + "." + encode(signature);
+  const makeToken = async (email: string) => {
+    const claims = encode(JSON.stringify({ iss: teamDomain, aud: audience, email, exp: now + 300, nbf: now - 10, iat: now }));
+    const signingInput = header + "." + claims;
+    const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(signingInput)));
+    return signingInput + "." + encode(signature);
+  };
+  const token = await makeToken("admin@example.com");
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input).endsWith("/cdn-cgi/access/certs")) {
@@ -290,6 +295,7 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
       RELEASE_PUBLISH_TOKEN: "must-not-leak",
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
       CF_ACCESS_AUD: audience,
+      CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
       RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
     } satisfies Env;
     const uiRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/admin", {
@@ -308,6 +314,14 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
     assert.equal(subdomainResponse.status, 200);
     assert.match(await subdomainResponse.text(), /Hendy Admin Console/);
     assert.equal(subdomainResponse.headers.get("x-frame-options"), "DENY");
+
+    const unauthorizedToken = await makeToken("intruder@example.com");
+    const deniedRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/status", {
+      headers: { "Cf-Access-Jwt-Assertion": unauthorizedToken },
+    });
+    const deniedResponse = await worker.fetch(deniedRequest, env);
+    assert.equal(deniedResponse.status, 403);
+    assert.equal((await deniedResponse.json() as { error: string }).error, "admin_identity_not_allowed");
 
     const statusRequest = new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/status", {
       headers: { "Cf-Access-Jwt-Assertion": token },
