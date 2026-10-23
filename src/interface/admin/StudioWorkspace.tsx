@@ -5,10 +5,10 @@ import {
   ChevronRight, CircleAlert, CloudUpload, Code2, Cpu, FileArchive, FileCode2,
   FileText, FolderOpen, Gauge, GitBranch, Github, History, KeyRound, LayoutDashboard,
   LoaderCircle, LockKeyhole, Monitor, Package, Rocket, Settings, ShieldCheck,
-  Smartphone, Terminal, Trash2, Upload, X, Zap
+  Smartphone, Terminal, Trash2, Upload, X, Zap, Store, ExternalLink, RefreshCw
 } from 'lucide-react';
 
-type ViewKey = 'overview' | 'builder' | 'releases' | 'settings';
+type ViewKey = 'overview' | 'builder' | 'releases' | 'storefront' | 'settings';
 type Platform = 'web' | 'windows' | 'android' | 'ios' | 'macos' | 'linux';
 type SourceEntry = { path: string; blob: Blob; size: number };
 type PublishedRelease = {
@@ -70,7 +70,10 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
   const [loadingSources, setLoadingSources] = useState(false);
   const [bundle, setBundle] = useState<BuiltBundle | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [publisherToken, setPublisherToken] = useState('');
+  const [adminStatus, setAdminStatus] = useState<{ storageConfigured: boolean; publishSecretConfigured: boolean; accessConfigured: boolean } | null>(null);
+  const defaultStoreConfig = { brandName: 'Hendy Store', announcement: '', heroEyebrow: 'ỨNG DỤNG · CÔNG CỤ · BẢN PHÁT HÀNH', heroTitle: 'Tất cả ứng dụng', heroAccent: 'trong một nơi.', heroDescription: 'Khám phá ứng dụng và tải xuống các bản phát hành thật, với thông tin phiên bản và mã kiểm tra tệp rõ ràng.', supportUrl: '', repositoryUrl: 'https://github.com/ngogiaidy56-eng/hendy-tool-releas' };
+  const [storeConfig, setStoreConfig] = useState(defaultStoreConfig);
+  const [storeConfigDirty, setStoreConfigDirty] = useState(false);
   const [releases, setReleases] = useState<PublishedRelease[]>([]);
   const [loadingReleases, setLoadingReleases] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -97,7 +100,56 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
     }
   };
 
-  useEffect(() => { void loadReleases(); }, []);
+  const loadAdminStatus = async () => {
+    try {
+      const response = await fetch('/api/v1/admin/status', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Không tải được trạng thái Worker API.');
+      setAdminStatus(await response.json());
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không tải được trạng thái quản trị.' });
+    }
+  };
+
+  const loadStoreConfig = async () => {
+    try {
+      const response = await fetch('/api/v1/store-config', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Không tải được cấu hình giao diện cửa hàng.');
+      const body = await response.json();
+      if (body.config) setStoreConfig({ ...defaultStoreConfig, ...body.config });
+      setStoreConfigDirty(false);
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không tải được cấu hình cửa hàng.' });
+    }
+  };
+
+  const saveStoreConfig = async () => {
+    setBusy(true);
+    setProgressMessage('Đang lưu cấu hình giao diện vào R2…');
+    try {
+      const response = await fetch('/api/v1/admin/store-config', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ config: storeConfig })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || body.error || ('Lưu giao diện thất bại: HTTP ' + response.status));
+      setStoreConfig({ ...defaultStoreConfig, ...body.config });
+      setStoreConfigDirty(false);
+      setNotice({ type: 'success', text: 'Đã lưu nội dung cửa hàng vào R2. Tải lại cửa hàng để kiểm tra.' });
+    } catch (error) {
+      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không lưu được cấu hình cửa hàng.' });
+    } finally {
+      setProgressMessage('');
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadReleases();
+    void loadAdminStatus();
+    void loadStoreConfig();
+  }, []);
 
   const appendFiles = async (inputFiles: FileList | File[]) => {
     const candidates = Array.from(inputFiles);
@@ -225,11 +277,6 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
       setNotice({ type: 'error', text: 'Hãy tạo ZIP hoặc chọn artifact đã build sẵn.' });
       return;
     }
-    if (!publisherToken.trim()) {
-      setNotice({ type: 'error', text: 'Cần RELEASE_PUBLISH_TOKEN để tải tệp lên kho R2. Token chỉ giữ trong bộ nhớ của tab này.' });
-      setView('settings');
-      return;
-    }
     const cleanSlug = toSlug(appSlug || appName);
     if (!cleanSlug) {
       setNotice({ type: 'error', text: 'Tên định danh ứng dụng không hợp lệ.' });
@@ -248,7 +295,7 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
       form.append('file', uploadFile, uploadFile.name);
       const response = await fetch('/api/v1/admin/publish', {
         method: 'POST',
-        headers: { Authorization: 'Bearer ' + publisherToken.trim() },
+        credentials: 'same-origin',
         body: form
       });
       const body = await response.json().catch(() => ({}));
@@ -271,6 +318,7 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
     { key: 'overview', label: 'Tổng quan', sub: 'Workspace', icon: LayoutDashboard },
     { key: 'builder', label: 'Đóng gói ứng dụng', sub: 'Build workspace', icon: Package },
     { key: 'releases', label: 'Bản phát hành', sub: 'Release manager', icon: Rocket },
+    { key: 'storefront', label: 'Giao diện cửa hàng', sub: 'Storefront control', icon: Store },
     { key: 'settings', label: 'Cấu hình', sub: 'Storage & security', icon: Settings }
   ];
 
@@ -300,7 +348,7 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
           <div className="mt-auto p-4">
             <div className="rounded-xl border border-amber-400/15 bg-amber-300/[.04] p-3">
               <div className="flex items-center gap-2 text-xs font-semibold text-amber-200"><LockKeyhole size={14}/> Bảo vệ API publish</div>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">Bảo vệ /admin bằng Cloudflare Access và giữ token phía client ở trạng thái tạm thời.</p>
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">Token chỉ lưu phía Worker. Cloudflare Access xác thực quản trị; giao diện không chứa secret.</p>
             </div>
             <button onClick={onReturnToStore} className="mt-4 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold text-slate-400 transition hover:bg-white/[.05] hover:text-white"><ArrowLeft size={16}/> Về cửa hàng</button>
           </div>
@@ -412,8 +460,8 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
                       <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/10 text-sky-300"><CloudUpload size={18}/></div><div><h2 className="font-extrabold">Đăng bản phát hành</h2><p className="mt-1 text-xs text-slate-500">Tải artifact lên R2 qua API</p></div></div>
                       <div className="mt-4 rounded-xl border border-white/[.07] bg-[#0b0c12] p-3"><div className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-600">Artifact tải lên</div><div className="mt-1 break-all text-xs font-semibold text-slate-300">{uploadFile ? uploadFile.name : 'Chưa chọn tệp'}</div><div className="mt-1 text-[11px] text-slate-600">{uploadFile ? byteLabel(uploadFile.size) : 'Tạo ZIP hoặc chọn gói đã build trên máy'}</div></div>
                       <label className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/[.1] px-3 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-white/[.04]"><Upload size={14}/> Chọn artifact đã build sẵn<input type="file" accept=".exe,.msi,.apk,.aab,.ipa,.dmg,.pkg,.appimage,.deb,.zip,.tar,.gz" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setUploadFile(file); setNotice({ type: 'info', text: 'Đã chọn artifact ' + file.name + '. Xác nhận phiên bản và nền tảng trước khi xuất bản.' }); } event.currentTarget.value = ''; }} className="hidden"/></label>
-                      <button onClick={() => setView('settings')} className="mt-3 flex w-full items-center gap-2 text-left text-[11px] text-slate-500 hover:text-violet-300"><KeyRound size={13}/> {publisherToken ? 'Token đã nhập trong tab này' : 'Cấu hình token publish trước khi tải lên'} <ArrowRight size={13} className="ml-auto"/></button>
-                      <button onClick={() => void publishArtifact()} disabled={busy || !uploadFile || !publisherToken.trim()} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-xs font-extrabold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"><Rocket size={15}/>{busy ? 'Đang xuất bản…' : 'Xuất bản lên R2'}</button>
+                      <div className="mt-3 flex items-start gap-2 text-[11px] leading-5 text-slate-500"><LockKeyhole size={13} className="mt-0.5 shrink-0 text-violet-300"/> Được xác thực qua Cloudflare Access. RELEASE_PUBLISH_TOKEN chỉ lưu ở Worker.</div>
+                      <button onClick={() => void publishArtifact()} disabled={busy || !uploadFile} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-sky-500 px-4 py-3 text-xs font-extrabold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-40"><Rocket size={15}/>{busy ? 'Đang xuất bản…' : 'Xuất bản lên R2'}</button>
                       <p className="mt-3 text-[10px] leading-5 text-slate-600">Nút này gọi API thật. Giới hạn upload trực tiếp là 25 MB mỗi tệp; artifact lớn hơn cần dịch vụ multipart/presigned upload. Nếu token, binding R2 hoặc cấu hình Worker chưa đúng, giao diện sẽ báo lỗi từ API thay vì giả lập xuất bản thành công.</p>
                     </div>
                   </div>
@@ -431,16 +479,30 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
               </section>
             )}
 
+            {view === 'storefront' && (
+              <section className="max-w-5xl space-y-6">
+                <div><div className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Storefront control</div><h1 className="mt-2 text-3xl font-black tracking-tight">Điều khiển giao diện người dùng</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Cập nhật thương hiệu, banner, nội dung trang chủ và liên kết cửa hàng. Cấu hình được lưu vào R2 và đọc lại qua API công khai.</p></div>
+                <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-7"><div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Tên cửa hàng</span><input value={storeConfig.brandName} onChange={(event) => { setStoreConfig((old) => ({ ...old, brandName: event.target.value })); setStoreConfigDirty(true); }} maxLength={70} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50"/></label>
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Thông báo đầu trang</span><input value={storeConfig.announcement} onChange={(event) => { setStoreConfig((old) => ({ ...old, announcement: event.target.value })); setStoreConfigDirty(true); }} maxLength={240} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50" placeholder="Thông báo tùy chọn"/></label>
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Nhãn banner</span><input value={storeConfig.heroEyebrow} onChange={(event) => { setStoreConfig((old) => ({ ...old, heroEyebrow: event.target.value })); setStoreConfigDirty(true); }} maxLength={100} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50"/></label>
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Tiêu đề banner</span><input value={storeConfig.heroTitle} onChange={(event) => { setStoreConfig((old) => ({ ...old, heroTitle: event.target.value })); setStoreConfigDirty(true); }} maxLength={100} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50"/></label>
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Dòng nhấn mạnh</span><input value={storeConfig.heroAccent} onChange={(event) => { setStoreConfig((old) => ({ ...old, heroAccent: event.target.value })); setStoreConfigDirty(true); }} maxLength={100} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50"/></label>
+                  <label className="block"><span className="mb-2 block text-xs font-semibold text-slate-400">Liên kết hỗ trợ HTTPS</span><input value={storeConfig.supportUrl} onChange={(event) => { setStoreConfig((old) => ({ ...old, supportUrl: event.target.value })); setStoreConfigDirty(true); }} type="url" className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50" placeholder="https://..."/></label>
+                  <label className="block sm:col-span-2"><span className="mb-2 block text-xs font-semibold text-slate-400">Mô tả trang chủ</span><textarea rows={4} value={storeConfig.heroDescription} onChange={(event) => { setStoreConfig((old) => ({ ...old, heroDescription: event.target.value })); setStoreConfigDirty(true); }} maxLength={500} className="w-full resize-y rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm leading-6 outline-none focus:border-violet-400/50"/></label>
+                  <label className="block sm:col-span-2"><span className="mb-2 block text-xs font-semibold text-slate-400">Repository công khai</span><input value={storeConfig.repositoryUrl} onChange={(event) => { setStoreConfig((old) => ({ ...old, repositoryUrl: event.target.value })); setStoreConfigDirty(true); }} type="url" className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-3.5 py-3 text-sm outline-none focus:border-violet-400/50"/></label>
+                </div><div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-white/[.07] pt-5"><span className="text-xs text-slate-500">{storeConfigDirty ? 'Có thay đổi chưa lưu' : 'Đang dùng nội dung đã tải từ API'}</span><div className="flex gap-2"><button onClick={() => void loadStoreConfig()} className="rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-white/[.04]">Tải lại</button><button onClick={() => void saveStoreConfig()} disabled={busy || !storeConfigDirty} className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-xs font-extrabold text-white hover:bg-violet-400 disabled:opacity-40"><CloudUpload size={14}/> Lưu lên R2</button></div></div></div>
+                <div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.035] p-5"><div className="flex items-start gap-3"><ShieldCheck size={19} className="mt-0.5 shrink-0 text-sky-200"/><div><h2 className="font-extrabold text-sky-100">Dữ liệu cửa hàng</h2><p className="mt-2 text-sm leading-6 text-slate-400">Danh mục, phiên bản, link tải và checksum tự lấy từ artifact đã xuất bản. Màn hình này quản lý nội dung và thương hiệu; không chèn dữ liệu phát hành giả.</p></div></div></div>
+              </section>
+            )}
+
             {view === 'settings' && (
-              <section className="max-w-4xl space-y-6">
-                <div><div className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Configuration</div><h1 className="mt-2 text-3xl font-black tracking-tight">Cấu hình xuất bản</h1><p className="mt-2 text-sm leading-6 text-slate-500">Thông tin kết nối kho R2 và bảo vệ publish API. Secret không được ghi vào localStorage hoặc mã nguồn.</p></div>
-                <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-7">
-                  <div className="flex items-start gap-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-400/10 text-amber-200"><KeyRound size={21}/></div><div><h2 className="font-extrabold">Release publish token</h2><p className="mt-2 text-sm leading-6 text-slate-500">Nhập giá trị cùng với Cloudflare Worker secret <code className="text-violet-200">RELEASE_PUBLISH_TOKEN</code>. Token chỉ nằm trong state của tab hiện tại và bị xóa khi tải lại trang.</p></div></div>
-                  <label className="mt-6 block"><span className="mb-2 block text-xs font-semibold text-slate-400">Bearer token</span><input type="password" autoComplete="new-password" value={publisherToken} onChange={(event) => setPublisherToken(event.target.value)} className="w-full rounded-xl border border-white/[.1] bg-[#0b0c12] px-4 py-3 font-mono text-sm outline-none focus:border-violet-400/50" placeholder="Dán token được cấu hình trong Cloudflare Dashboard"/></label>
-                  <div className="mt-4 flex flex-wrap gap-3"><button onClick={() => setNotice({ type: 'info', text: publisherToken.trim() ? 'Token sẽ được dùng cho những yêu cầu publish trong tab này; chưa có request xác thực nào được gửi.' : 'Chưa nhập token.' })} className="rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-white/[.04]">Lưu trong phiên</button><button onClick={() => setPublisherToken('')} className="rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold text-slate-400 hover:text-rose-300">Xóa token</button></div>
-                </div>
-                <div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.035] p-5 sm:p-6"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0 text-sky-200"/><div><h2 className="font-extrabold text-sky-100">Checklist Cloudflare</h2><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-400"><li>Worker cần binding R2 tên <code className="text-slate-200">RELEASES_BUCKET</code>.</li><li>Đặt secret <code className="text-slate-200">RELEASE_PUBLISH_TOKEN</code> bằng Wrangler CLI hoặc Cloudflare Dashboard; tuyệt đối không ghi token vào GitHub repository.</li><li>Đặt Cloudflare Access hoặc xác thực quản trị phù hợp trước khi đưa giao diện Admin vào môi trường công khai.</li><li>Đối với EXE/APK/IPA native, build và ký số trên runner phù hợp rồi tải chính artifact đó lên; gói nguồn ZIP không thay thế binary.</li></ol></div></div></div>
-                <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-6"><div className="flex items-center gap-3"><Github size={19} className="text-slate-300"/><div><h2 className="font-extrabold">CI/CD và mã nguồn</h2><p className="mt-1 text-xs text-slate-500">Mở workflow để kiểm tra kết quả build trên runner thay vì suy đoán từ giao diện.</p></div></div><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas/actions" target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]">Mở GitHub Actions <ArrowRight size={14}/></a></div>
+              <section className="max-w-5xl space-y-6">
+                <div><div className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Platform settings</div><h1 className="mt-2 text-3xl font-black tracking-tight">Cấu hình bảo mật & phát hành</h1><p className="mt-2 text-sm leading-6 text-slate-500">Secret nằm phía Worker. Studio không nhận, lưu hoặc đưa RELEASE_PUBLISH_TOKEN vào bundle trình duyệt.</p></div>
+                <div className="grid gap-3 sm:grid-cols-3">{[{title:'R2 storage',ok:adminStatus?.storageConfigured,desc:'Binding và thao tác lưu/list'},{title:'Worker secret',ok:adminStatus?.publishSecretConfigured,desc:'RELEASE_PUBLISH_TOKEN'},{title:'Cloudflare Access',ok:adminStatus?.accessConfigured,desc:'Team domain và AUD'}].map((item) => <div key={item.title} className="rounded-2xl border border-white/[.08] bg-[#11131d] p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-extrabold">{item.title}</span><span className={'rounded-full px-2 py-1 text-[10px] font-bold ' + (item.ok ? 'bg-emerald-400/10 text-emerald-300' : 'bg-amber-300/10 text-amber-200')}>{adminStatus ? (item.ok ? 'READY' : 'NEEDS SETUP') : 'CHECKING'}</span></div><p className="mt-2 text-xs text-slate-500">{item.desc}</p></div>)}</div>
+                <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-7"><div className="flex items-start gap-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-400/10 text-amber-200"><KeyRound size={21}/></div><div><h2 className="font-extrabold">Tích hợp RELEASE_PUBLISH_TOKEN phía server</h2><p className="mt-2 text-sm leading-6 text-slate-400">Đặt secret một lần trong Cloudflare. Giá trị không được nhúng vào frontend, Git hoặc browser storage.</p><pre className="mt-4 overflow-x-auto rounded-xl border border-white/[.07] bg-black/30 p-4 text-xs leading-6 text-violet-200">npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml</pre><p className="mt-3 text-xs leading-5 text-slate-500">Tự nhập giá trị secret khi Wrangler yêu cầu; không gửi secret trong cuộc trò chuyện hoặc commit vào repository.</p><button onClick={() => void loadAdminStatus()} className="mt-4 inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-white/[.04]"><RefreshCw size={14}/> Kiểm tra trạng thái</button></div></div></div>
+                <div className="rounded-2xl border border-sky-400/15 bg-sky-400/[.035] p-5 sm:p-6"><div className="flex gap-3"><ShieldCheck size={20} className="shrink-0 text-sky-200"/><div><h2 className="font-extrabold text-sky-100">Cấu hình Cloudflare Access</h2><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-400"><li>Tạo Access application và bảo vệ /admin* cùng /api/v1/admin/*.</li><li>Đặt Worker variable CF_ACCESS_TEAM_DOMAIN thành https://&lt;team&gt;.cloudflareaccess.com và CF_ACCESS_AUD thành AUD của Access application.</li><li>Worker xác minh chữ ký RS256, issuer, audience và thời hạn JWT trước khi thay đổi release hoặc cấu hình cửa hàng.</li><li>Binding R2 phải là RELEASES_BUCKET. Upload trực tiếp tối đa 25 MB; file lớn cần multipart/presigned upload.</li></ol></div></div></div>
+                <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-6"><div className="flex items-center gap-3"><Github size={19} className="text-slate-300"/><div><h2 className="font-extrabold">Source, CI/CD và Dashboard</h2><p className="mt-1 text-xs text-slate-500">Mở thẳng mã nguồn, workflow hoặc Worker deployment.</p></div></div><div className="mt-4 flex flex-wrap gap-2"><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]"><Github size={14}/> Repository <ExternalLink size={12}/></a><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas/actions" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]"><GitBranch size={14}/> GitHub Actions <ExternalLink size={12}/></a><a href="https://dash.cloudflare.com/918ff2f016938fc978ed23b96505b21e/workers-and-pages" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]"><ExternalLink size={14}/> Cloudflare Dashboard</a></div></div>
               </section>
             )}
           </div>
