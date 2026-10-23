@@ -141,3 +141,57 @@ test("published artifact streams from R2 with download headers", async () => {
   assert.equal(response.headers.get("content-disposition"), 'attachment; filename="HendyToolsPro-3.2.0-Setup.exe"');
   assert.equal(await response.text(), "test");
 });
+
+
+test("published releases endpoint lists real R2 objects", async () => {
+  const bucket = {
+    async list() {
+      return {
+        objects: [{
+          key: "published/demo-app/1.0.0/demo-app.zip",
+          size: 12,
+          uploaded: new Date("2026-10-23T10:00:00.000Z"),
+          customMetadata: {
+            appName: "Demo App",
+            appSlug: "demo-app",
+            version: "1.0.0",
+            platform: "web",
+            fileName: "demo-app.zip",
+            sha256: "c".repeat(64),
+            publishedAt: "2026-10-23T10:00:00.000Z",
+            releaseNotes: "Initial bundle",
+          },
+        }],
+        truncated: false,
+      };
+    },
+  };
+  const response = await worker.fetch(request("/api/v1/published-releases"), { RELEASES_BUCKET: bucket } satisfies Env);
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { total: number; releases: Array<{ fileName: string; sha256: string; downloadUrl: string }> };
+  assert.equal(payload.total, 1);
+  assert.equal(payload.releases[0].fileName, "demo-app.zip");
+  assert.equal(payload.releases[0].sha256, "c".repeat(64));
+  assert.match(payload.releases[0].downloadUrl, /published\\/downloads/);
+});
+
+test("publish endpoint requires a configured secret before accepting uploads", async () => {
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+    method: "POST",
+    body: new FormData(),
+  }), {} satisfies Env);
+  assert.equal(response.status, 503);
+  const payload = await response.json() as { error: string };
+  assert.equal(payload.error, "publish_not_configured");
+});
+
+test("publish endpoint rejects an incorrect bearer token", async () => {
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+    method: "POST",
+    headers: { Authorization: "Bearer wrong-token" },
+    body: new FormData(),
+  }), { RELEASE_PUBLISH_TOKEN: "correct-token", RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; } } } satisfies Env);
+  assert.equal(response.status, 401);
+  const payload = await response.json() as { error: string };
+  assert.equal(payload.error, "unauthorized");
+});

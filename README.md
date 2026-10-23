@@ -74,6 +74,14 @@ npm run deploy:pages
 
 For local manual Worker deployment, authenticate with `npx wrangler@4 login` first. For automation outside Workers Builds, provide a scoped `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` through the CI secret manager; do not commit tokens.
 
+## Two separate interfaces and packaging/publishing
+
+- User storefront: `/` (and `/store`) lists actual published R2 artifacts; downloads are enabled only when the API returns a real object.
+- Admin Studio: `/admin` provides source ZIP import, SemVer release metadata, browser ZIP packaging, real SHA-256 calculation, artifact upload, release history, and publish-token configuration.
+- Browser packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`. It does not compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on the corresponding CI runner, then uploaded as artifacts.
+- For the R2 publish API, configure the Worker secret `RELEASE_PUBLISH_TOKEN` (`npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml`) and provide the same value in Studio. Keep the token out of Git. The direct upload endpoint currently accepts files up to 25 MB; larger binaries need a presigned/multipart upload service.
+- Protect `/admin` using Cloudflare Access or your organization’s authenticated gateway. The UI route is not an authentication boundary; the publish API requires the bearer secret.
+
 ## Release artifacts
 
 The API intentionally reports release packages as unavailable until the real binary exists in R2. This repository does not contain proven signed production Windows installers or Android APKs. Upload a real artifact to the configured object key before advertising it as downloadable:

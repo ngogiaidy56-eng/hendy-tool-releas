@@ -24,6 +24,16 @@ interface R2ObjectBody extends R2ObjectMetadata {
 export interface ReleaseBucketBinding {
   head(key: string): Promise<R2ObjectMetadata | null>;
   get(key: string): Promise<R2ObjectBody | null>;
+  put?(
+    key: string,
+    value: ArrayBuffer,
+    options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> }
+  ): Promise<R2ObjectMetadata>;
+  list?(options?: { prefix?: string; limit?: number; include?: string[] }): Promise<{
+    objects: R2ObjectMetadata[];
+    truncated?: boolean;
+    cursor?: string;
+  }>;
 }
 
 export interface Env {
@@ -32,6 +42,7 @@ export interface Env {
   ENVIRONMENT?: string;
   APP_NAME?: string;
   PUBLIC_BASE_URL?: string;
+  RELEASE_PUBLISH_TOKEN?: string;
 }
 
 type ReleaseRecord = {
@@ -252,6 +263,188 @@ async function manifestResponse(request: Request, env: Env): Promise<Response> {
   });
 }
 
+
+
+function safeSlug(value: string): string {
+  return value.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+}
+
+function tokenMatches(provided: string, expected: string): boolean {
+  let diff = provided.length ^ expected.length;
+  const count = Math.max(provided.length, expected.length);
+  for (let index = 0; index < count; index++) {
+    diff |= (provided.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
+
+function hexSha256(bytes: ArrayBuffer): Promise<string> {
+  return crypto.subtle.digest("SHA-256", bytes).then((digest) =>
+    Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("")
+  );
+}
+
+async function publishedReleasesResponse(request: Request, env: Env): Promise<Response> {
+  if (!env.RELEASES_BUCKET?.list) {
+    return json({ success: false, error: "release_catalog_unavailable", message: "R2 bucket chưa hỗ trợ liệt kê artifact." }, 503);
+  }
+  const result = await env.RELEASES_BUCKET.list({
+    prefix: "published/",
+    limit: 1000,
+    include: ["customMetadata"],
+  });
+  const origin = baseUrl(request, env);
+  const releases = result.objects
+    .filter((object) => Boolean(object.key && object.key.startsWith("published/")))
+    .map((object) => {
+      const metadata = object.customMetadata || {};
+      const key = object.key || "";
+      const fileName = metadata.fileName || key.split("/").pop() || "artifact";
+      const publishedAt = metadata.publishedAt ||
+        (object.uploaded instanceof Date ? object.uploaded.toISOString() : object.uploaded || null);
+      const encodedKey = key.split("/").map((part) => encodeURIComponent(part)).join("/");
+      return {
+        key,
+        appName: metadata.appName || key.split("/")[1] || "Application",
+        appSlug: metadata.appSlug || key.split("/")[1] || "application",
+        version: metadata.version || key.split("/")[2] || "0.0.0",
+        platform: metadata.platform || "web",
+        fileName,
+        sizeBytes: object.size,
+        sha256: sha256From(object),
+        publishedAt,
+        releaseNotes: metadata.releaseNotes || "",
+        downloadUrl: origin + "/api/v1/published/downloads/" + encodedKey,
+      };
+    })
+    .sort((left, right) => String(right.publishedAt || "").localeCompare(String(left.publishedAt || "")));
+  return json({ success: true, total: releases.length, releases, truncated: Boolean(result.truncated) });
+}
+
+async function publishArtifact(request: Request, env: Env): Promise<Response> {
+  if (!env.RELEASES_BUCKET || !env.RELEASES_BUCKET.put) {
+    return json({
+      success: false,
+      error: "publish_storage_unavailable",
+      message: "R2 bucket hoặc quyền put chưa sẵn sàng cho API publish.",
+    }, 503);
+  }
+  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
+  if (!expected) {
+    return json({
+      success: false,
+      error: "publish_not_configured",
+      message: "Worker secret RELEASE_PUBLISH_TOKEN chưa được cấu hình.",
+    }, 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match || !tokenMatches(match[1].trim(), expected)) {
+    return json({ success: false, error: "unauthorized", message: "Token publish không hợp lệ." }, 401);
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return json({ success: false, error: "invalid_multipart", message: "Yêu cầu phải là multipart/form-data." }, 400);
+  }
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return json({ success: false, error: "artifact_required", message: "Thiếu trường file trong dữ liệu tải lên." }, 400);
+  }
+  const maxUploadBytes = 25 * 1024 * 1024;
+  if (file.size < 1 || file.size > maxUploadBytes) {
+    return json({ success: false, error: "artifact_size_limit", message: "Artifact phải lớn hơn 0 byte và không vượt quá 25 MB cho endpoint upload trực tiếp." }, 413);
+  }
+
+  const appName = String(form.get("appName") || "").trim().slice(0, 120);
+  const appSlug = safeSlug(String(form.get("appSlug") || appName));
+  const version = String(form.get("version") || "").trim();
+  const platform = String(form.get("platform") || "web").trim().toLowerCase();
+  const releaseNotes = String(form.get("releaseNotes") || "").trim().slice(0, 2000);
+  if (!appName || !appSlug) {
+    return json({ success: false, error: "invalid_app", message: "Tên ứng dụng và slug là bắt buộc." }, 400);
+  }
+  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$/.test(version)) {
+    return json({ success: false, error: "invalid_version", message: "Phiên bản phải dùng SemVer, ví dụ 1.2.3." }, 400);
+  }
+  if (!["web", "windows", "android", "ios", "macos", "linux"].includes(platform)) {
+    return json({ success: false, error: "invalid_platform", message: "Nền tảng không được hỗ trợ." }, 400);
+  }
+  const rawName = file.name.split(/[\\/]/).pop() || "artifact.bin";
+  const fileName = rawName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180);
+  if (!fileName || fileName === "." || fileName === "..") {
+    return json({ success: false, error: "invalid_filename", message: "Tên artifact không hợp lệ." }, 400);
+  }
+
+  const bytes = await file.arrayBuffer();
+  const sha256 = await hexSha256(bytes);
+  const publishedAt = new Date().toISOString();
+  const key = "published/" + appSlug + "/" + version + "/" + fileName;
+  const storedContentType = contentType(fileName, file.type || undefined);
+  await env.RELEASES_BUCKET.put(key, bytes, {
+    httpMetadata: { contentType: storedContentType },
+    customMetadata: {
+      appName,
+      appSlug,
+      version,
+      platform,
+      fileName,
+      sha256,
+      publishedAt,
+      releaseNotes,
+    },
+  });
+  const origin = baseUrl(request, env);
+  const downloadUrl = origin + "/api/v1/published/downloads/" +
+    key.split("/").map((part) => encodeURIComponent(part)).join("/");
+  return json({
+    success: true,
+    message: "Artifact đã được tải lên R2.",
+    key,
+    appName,
+    appSlug,
+    version,
+    platform,
+    fileName,
+    sizeBytes: file.size,
+    sha256,
+    publishedAt,
+    releaseNotes,
+    downloadUrl,
+  }, 201);
+}
+
+async function downloadPublishedArtifact(request: Request, env: Env): Promise<Response> {
+  if (!env.RELEASES_BUCKET) {
+    return json({ success: false, error: "release_storage_not_configured" }, 503);
+  }
+  const prefix = "/api/v1/published/downloads/";
+  let key: string;
+  try {
+    key = new URL(request.url).pathname.slice(prefix.length).split("/").map((part) => decodeURIComponent(part)).join("/");
+  } catch {
+    return json({ success: false, error: "invalid_artifact_key" }, 400);
+  }
+  if (!key.startsWith("published/") || key.split("/").some((part) => part === ".." || part === "")) {
+    return json({ success: false, error: "invalid_artifact_key" }, 400);
+  }
+  const object = await env.RELEASES_BUCKET.get(key);
+  if (!object) return json({ success: false, error: "artifact_not_found" }, 404);
+  const safeName = (object.customMetadata?.fileName || key.split("/").pop() || "artifact").replace(/["\r\n]/g, "_");
+  const headers = securityHeaders();
+  headers.set("Content-Type", contentType(safeName, object.httpMetadata?.contentType));
+  headers.set("Content-Disposition", "attachment; filename=\"" + safeName + "\"");
+  headers.set("Content-Length", String(object.size));
+  headers.set("Cache-Control", "public, max-age=3600");
+  const sha256 = sha256From(object);
+  if (sha256) headers.set("X-Artifact-SHA256", sha256);
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function routeApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -342,6 +535,22 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
         ? `${baseUrl(request, env)}/api/v1/downloads/artifacts/${encodeURIComponent(release.fileName)}`
         : null,
     });
+  }
+
+
+  if (path === "/api/v1/published-releases") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    return publishedReleasesResponse(request, env);
+  }
+
+  if (path === "/api/v1/admin/publish") {
+    if (method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
+    return publishArtifact(request, env);
+  }
+
+  if (path.startsWith("/api/v1/published/downloads/")) {
+    if (method !== "GET" && method !== "HEAD") return json({ success: false, error: "method_not_allowed" }, 405);
+    return downloadPublishedArtifact(request, env);
   }
 
   if (path === "/api/domains" || path === "/api/v1/domains") {

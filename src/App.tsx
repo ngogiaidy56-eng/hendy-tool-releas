@@ -1,129 +1,53 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
+import React, { useEffect, useState } from 'react';
+import StorefrontV2 from './interface/store/StorefrontV2.tsx';
+import StudioWorkspace from './interface/admin/StudioWorkspace.tsx';
 
-import React, { useState, useEffect } from 'react';
-import { SAMPLE_PROJECTS } from './utils/sampleProjects.ts';
-import { ProjectTemplate } from './types/index.ts';
-import {
-  useScreenFit,
-  ResponsiveLayout,
-  AppStoreView,
-  ServerPlusConsole,
-  SecurityGate,
-  GoogleDriveModal,
-} from './interface/index.ts';
+type AppView = 'store' | 'admin';
 
-const ALLOWED_ADMIN_IPS = ['103.149.28.4', '127.0.0.1', '14.162.140.89'];
-export const PRIMARY_CLOUDFLARE_PAGES_DOMAIN = 'hendytools.pages.dev';
+function resolveView(): AppView {
+  const path = window.location.pathname.toLowerCase();
+  const host = window.location.hostname.toLowerCase();
+  if (path === '/admin' || path.startsWith('/admin/') || path === '/studio' || path.startsWith('/studio/')) return 'admin';
+  if (host.startsWith('admin.') || host.startsWith('serverplus.') || host.startsWith('admin-plus.') || host.startsWith('studio.')) return 'admin';
+  return 'store';
+}
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'store' | 'admin-plus'>('store');
-  const [showSecurityGate, setShowSecurityGate] = useState(false);
-  const [showDriveModal, setShowDriveModal] = useState(false);
-  const [clientIp, setClientIp] = useState('103.149.28.4');
-  const [hasAdminAccess, setHasAdminAccess] = useState(false);
-  const [apps] = useState<ProjectTemplate[]>(SAMPLE_PROJECTS);
+  const [view, setView] = useState<AppView>(resolveView);
 
-  // Responsive Screen Fit Hook: automatically tracks viewport size and breakpoint under the hood
-  const {
-    breakpoint,
-    fitMode,
-    scaleFactor,
-  } = useScreenFit();
-
-  const isAuthorizedIp = ALLOWED_ADMIN_IPS.includes(clientIp);
-
-  // Auto-detect route from URL hash, pathname, or Cloudflare Pages domain
   useEffect(() => {
-    const handleUrlRoute = () => {
-      const hash = window.location.hash;
-      const path = window.location.pathname;
-      const host = window.location.hostname;
-
-      // Cloudflare Pages subdomain or standard path routing
-      const isAdminRoute =
-        path.startsWith('/admin') ||
-        path.startsWith('/serverplus') ||
-        hash === '#admin' ||
-        hash === '#serverplus' ||
-        host.startsWith('admin.') ||
-        host.startsWith('serverplus.') ||
-        host.startsWith('admin-plus.');
-
-      if (isAdminRoute) {
-        if (isAuthorizedIp || hasAdminAccess) {
-          setCurrentView('admin-plus');
-        } else {
-          setShowSecurityGate(true);
-        }
-      } else {
-        setCurrentView('store');
-      }
-    };
-
-    handleUrlRoute();
-    window.addEventListener('hashchange', handleUrlRoute);
-    window.addEventListener('popstate', handleUrlRoute);
+    const syncRoute = () => setView(resolveView());
+    window.addEventListener('popstate', syncRoute);
+    window.addEventListener('hashchange', syncRoute);
     return () => {
-      window.removeEventListener('hashchange', handleUrlRoute);
-      window.removeEventListener('popstate', handleUrlRoute);
+      window.removeEventListener('popstate', syncRoute);
+      window.removeEventListener('hashchange', syncRoute);
     };
-  }, [isAuthorizedIp, hasAdminAccess]);
+  }, []);
 
-  const handleRequestAdminAccess = () => {
-    if (isAuthorizedIp || hasAdminAccess) {
-      setCurrentView('admin-plus');
-      window.location.hash = '#admin';
-    } else {
-      setShowSecurityGate(true);
+  const openAdmin = () => {
+    if (resolveView() === 'admin') {
+      setView('admin');
+      return;
     }
+    window.history.pushState({}, '', '/admin');
+    setView('admin');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
-  const handleGrantAccess = () => {
-    setHasAdminAccess(true);
-    setShowSecurityGate(false);
-    setCurrentView('admin-plus');
-    window.location.hash = '#admin';
+  const openStore = () => {
+    const host = window.location.hostname.toLowerCase();
+    if (host.startsWith('admin.') || host.startsWith('serverplus.') || host.startsWith('admin-plus.') || host.startsWith('studio.')) {
+      const storeHost = host.replace(/^(admin|serverplus|admin-plus|studio)\./, '');
+      window.location.href = window.location.protocol + '//' + storeHost + '/';
+      return;
+    }
+    window.history.pushState({}, '', '/');
+    setView('store');
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
-  const handleReturnToStore = () => {
-    setCurrentView('store');
-    window.location.hash = '';
-  };
-
-  return (
-    <ResponsiveLayout fitMode={fitMode} breakpoint={breakpoint} scaleFactor={scaleFactor}>
-      {/* Air-gapped Interface Views (ScreenFitBar is hidden per user instruction) */}
-      {currentView === 'store' ? (
-        <AppStoreView
-          apps={apps}
-          onRequestAdminAccess={handleRequestAdminAccess}
-        />
-      ) : (
-        <ServerPlusConsole
-          onReturnToStore={handleReturnToStore}
-          onOpenDriveModal={() => setShowDriveModal(true)}
-          clientIp={clientIp}
-        />
-      )}
-
-      {/* Security Gate Modal for Admin Console Access */}
-      {showSecurityGate && (
-        <SecurityGate
-          clientIp={clientIp}
-          isAuthorizedIp={isAuthorizedIp}
-          onGrantAccess={handleGrantAccess}
-          onCancel={() => setShowSecurityGate(false)}
-          onSimulateIpChange={(newIp) => setClientIp(newIp)}
-        />
-      )}
-
-      {/* Google Drive Workspace API Integration Modal (Managed within Admin Interface) */}
-      {showDriveModal && (
-        <GoogleDriveModal onClose={() => setShowDriveModal(false)} />
-      )}
-    </ResponsiveLayout>
-  );
+  return view === 'admin'
+    ? <StudioWorkspace onReturnToStore={openStore} />
+    : <StorefrontV2 onOpenAdmin={openAdmin} />;
 }
