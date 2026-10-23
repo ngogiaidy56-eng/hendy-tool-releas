@@ -44,6 +44,10 @@ export interface Env {
   ENVIRONMENT?: string;
   APP_NAME?: string;
   PUBLIC_BASE_URL?: string;
+  RELEASE_PUBLISH_TOKEN?: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  CF_ACCESS_ADMIN_EMAILS?: string;
 }
 
 type ReleaseRecord = {
@@ -271,6 +275,15 @@ function safeSlug(value: string): string {
     .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
 }
 
+function tokenMatches(provided: string, expected: string): boolean {
+  let diff = provided.length ^ expected.length;
+  const count = Math.max(provided.length, expected.length);
+  for (let index = 0; index < count; index++) {
+    diff |= (provided.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
+  }
+  return diff === 0;
+}
+
 function hexSha256(bytes: ArrayBuffer): Promise<string> {
   return crypto.subtle.digest("SHA-256", bytes).then((digest) =>
     Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("")
@@ -315,6 +328,8 @@ async function publishedReleasesResponse(request: Request, env: Env): Promise<Re
 }
 
 async function publishArtifact(request: Request, env: Env): Promise<Response> {
+  const denied = await authorizeAdmin(request, env);
+  if (denied) return denied;
   if (!env.RELEASES_BUCKET || !env.RELEASES_BUCKET.put) {
     return json({
       success: false,
@@ -471,6 +486,151 @@ function parseStorefrontConfig(value: unknown): StorefrontConfig {
   };
 }
 
+function decodeJwtPart(value: string): Record<string, unknown> | null {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  } catch { return null; }
+}
+
+async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
+  const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
+  const expectedAudience = env.CF_ACCESS_AUD?.trim();
+  const allowedAdminEmails = (env.CF_ACCESS_ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  if (!teamDomain || !expectedAudience || allowedAdminEmails.length === 0) {
+    return json({
+      success: false,
+      error: "admin_access_not_configured",
+      message: "Cần cấu hình CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD và CF_ACCESS_ADMIN_EMAILS (danh sách email quản trị cho phép).",
+    }, 503);
+  }
+  try {
+    const issuer = new URL(teamDomain);
+    if (issuer.protocol !== "https:" || !issuer.hostname.endsWith(".cloudflareaccess.com")) throw new Error("Invalid team domain");
+  } catch {
+    return json({ success: false, error: "invalid_access_config", message: "CF_ACCESS_TEAM_DOMAIN phải là HTTPS team domain của Cloudflare Access." }, 503);
+  }
+
+  const token = request.headers.get("Cf-Access-Jwt-Assertion");
+  if (!token) return json({
+    success: false,
+    error: "cloudflare_access_required",
+    message: "Đăng nhập qua Cloudflare Access để thực hiện thao tác quản trị.",
+  }, 401);
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return json({ success: false, error: "invalid_access_token" }, 401);
+  const header = decodeJwtPart(parts[0]);
+  const claims = decodeJwtPart(parts[1]);
+  const kid = typeof header?.kid === "string" ? header.kid : "";
+  if (!header || header.alg !== "RS256" || !claims || !kid) return json({ success: false, error: "invalid_access_token" }, 401);
+
+  const now = Math.floor(Date.now() / 1000);
+  const aud = claims.aud;
+  const audMatches = Array.isArray(aud) ? aud.includes(expectedAudience) : aud === expectedAudience;
+  if (claims.iss !== teamDomain || !audMatches || typeof claims.exp !== "number" || claims.exp <= now ||
+      (typeof claims.nbf === "number" && claims.nbf > now)) {
+    return json({ success: false, error: "access_claims_invalid", message: "Access JWT hết hạn hoặc không khớp issuer/audience." }, 401);
+  }
+
+  try {
+    const keyResponse = await fetch(teamDomain + "/cdn-cgi/access/certs", { headers: { Accept: "application/json" } });
+    if (!keyResponse.ok) throw new Error("Could not load Access signing keys");
+    const keySet = await keyResponse.json() as { keys?: JsonWebKey[] };
+    const jwk = keySet.keys?.find((key) => (key as JsonWebKey & { kid?: string }).kid === kid);
+    if (!jwk) throw new Error("Signing key was not found");
+    const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    const encodedSig = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+    const sigBytes = Uint8Array.from(atob(encodedSig + "=".repeat((4 - encodedSig.length % 4) % 4)), (character) => character.charCodeAt(0));
+    const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sigBytes, new TextEncoder().encode(parts[0] + "." + parts[1]));
+    if (!valid) throw new Error("JWT signature did not verify");
+    // Only trust identity claims after the JWT signature has been verified.
+    const email = typeof claims.email === "string" ? claims.email.trim().toLowerCase() : "";
+    if (!email || !allowedAdminEmails.includes(email)) {
+      return json({ success: false, error: "admin_identity_not_allowed", message: "Tài khoản Cloudflare Access này chưa được cấp quyền quản trị." }, 403);
+    }
+    return null;
+  } catch (error) {
+    console.error("Cloudflare Access validation error", error);
+    return json({ success: false, error: "access_verification_failed", message: "Không xác minh được danh tính qua Cloudflare Access." }, 401);
+  }
+}
+
+function adminAccessPage(status: number): Response {
+  const needsSetup = status === 503;
+  const identityDenied = status === 403;
+  const title = needsSetup
+    ? "Cần hoàn tất cấu hình bảo mật"
+    : identityDenied ? "Tài khoản chưa được cấp quyền quản trị" : "Đăng nhập quản trị để tiếp tục";
+  const message = needsSetup
+    ? "Worker chưa được cấu hình đầy đủ Cloudflare Access. Quản trị viên cần thiết lập Team Domain, AUD và danh sách email quản trị được phép."
+    : identityDenied
+      ? "Danh tính đã được xác minh nhưng email chưa nằm trong danh sách CF_ACCESS_ADMIN_EMAILS được chủ hệ thống cho phép."
+      : "Yêu cầu này chưa có danh tính Cloudflare Access hợp lệ. Hãy truy cập qua ứng dụng Access đã được cấp quyền cho tài khoản quản trị.";
+  const html = `<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="same-origin">
+<title>${title} — Hendy Admin</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#090b12;color:#e2e8f0}
+*{box-sizing:border-box}body{min-height:100vh;margin:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 70% 5%,#312e8133,transparent 45%),#090b12}
+main{width:min(100%,620px);border:1px solid #ffffff18;border-radius:28px;background:linear-gradient(145deg,#151724,#0f111a);padding:clamp(24px,6vw,44px);box-shadow:0 30px 100px #0008}
+.brand{display:flex;align-items:center;gap:12px;font-size:12px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#a5b4fc}
+.mark{display:grid;place-items:center;width:46px;height:46px;border-radius:15px;background:linear-gradient(135deg,#6366f1,#8b5cf6);font-size:20px;color:white;letter-spacing:0}
+.pill{display:inline-flex;align-items:center;gap:8px;margin-top:30px;border:1px solid #fbbf2433;border-radius:999px;background:#fbbf240d;padding:7px 11px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#fcd34d}
+.dot{width:7px;height:7px;border-radius:50%;background:#fbbf24}
+h1{margin:18px 0 12px;font-size:clamp(29px,5vw,42px);line-height:1.1;letter-spacing:-.045em}
+p{margin:0;color:#a1a1aa;font-size:14px;line-height:1.85}
+.panel{margin-top:24px;padding:16px;border:1px solid #ffffff12;border-radius:16px;background:#0003}
+.panel strong{display:block;font-size:12px;color:#e4e4e7}.panel code{display:block;margin-top:9px;color:#c4b5fd;font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+nav{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:12px;padding:0 16px;text-decoration:none;font-size:12px;font-weight:800}
+.primary{background:#6366f1;color:#fff}.secondary{border:1px solid #ffffff1c;color:#cbd5e1}
+small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8}
+</style>
+</head>
+<body><main>
+<div class="brand"><span class="mark">H</span><span>Hendy Admin Console<br><span style="color:#71717a;font-weight:600;letter-spacing:.08em">SECURE DEVELOPER WORKSPACE</span></span></div>
+<div class="pill"><span class="dot"></span>${needsSetup ? "Access setup required" : identityDenied ? "Admin allow-list denied" : "Authentication required"}</div>
+<h1>${title}</h1><p>${message}</p>
+<div class="panel"><strong>Đường dẫn quản trị được bảo vệ</strong><code>/admin · /studio · /api/v1/admin/*</code><code>${needsSetup ? "CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD + CF_ACCESS_ADMIN_EMAILS" : identityDenied ? "Email is not in CF_ACCESS_ADMIN_EMAILS" : "Cf-Access-Jwt-Assertion"}</code></div>
+<nav><a class="primary" href="/">Quay về cửa hàng</a><a class="secondary" href="https://dash.cloudflare.com/" rel="noreferrer">Mở Cloudflare Dashboard ↗</a></nav>
+<small>Trang quản trị không được cung cấp từ giao diện cửa hàng công khai. Không gửi secret hoặc token vào mã nguồn, trình duyệt hay tin nhắn.</small>
+</main></body></html>`;
+  const headers = securityHeaders({ "Content-Type": "text/html; charset=utf-8" });
+  headers.set("Cache-Control", "no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  return new Response(html, { status, headers });
+}
+
+async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
+  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
+  if (!expected) {
+    return json({
+      success: false,
+      error: "publish_not_configured",
+      message: "Worker Secret RELEASE_PUBLISH_TOKEN chưa được cấu hình trong Cloudflare.",
+    }, 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  // CI uses the same secret from GitHub Actions; the browser UI never receives it.
+  if (match && tokenMatches(match[1].trim(), expected)) return null;
+  return verifyCloudflareAccess(request, env);
+}
+
 async function storefrontConfigResponse(env: Env): Promise<Response> {
   if (!env.RELEASES_BUCKET) return json({ success: true, config: DEFAULT_STOREFRONT_CONFIG, source: "defaults" });
   const stored = await env.RELEASES_BUCKET.get("config/storefront.json");
@@ -483,12 +643,15 @@ async function storefrontConfigResponse(env: Env): Promise<Response> {
   }
 }
 
-async function adminStatusResponse(env: Env): Promise<Response> {
+async function adminStatusResponse(request: Request, env: Env): Promise<Response> {
+  const denied = await verifyCloudflareAccess(request, env);
+  if (denied) return denied;
   return json({
     success: true,
-    authenticationRequired: false,
     storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
-    publishingAvailable: Boolean(env.RELEASES_BUCKET?.put),
+    publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
+    accessConfigured: Boolean(env.CF_ACCESS_TEAM_DOMAIN?.trim() && env.CF_ACCESS_AUD?.trim() && (env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
+    adminAllowlistConfigured: Boolean((env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
     nativeBuilders: {
       windows: "ci-runner-required",
       android: "android-sdk-required",
@@ -501,6 +664,8 @@ async function adminStatusResponse(env: Env): Promise<Response> {
 }
 
 async function saveStorefrontConfig(request: Request, env: Env): Promise<Response> {
+  const denied = await authorizeAdmin(request, env);
+  if (denied) return denied;
   if (!env.RELEASES_BUCKET?.put) return json({ success: false, error: "publish_storage_unavailable" }, 503);
   let body: unknown;
   try { body = await request.json(); }
@@ -561,6 +726,8 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
 
   if (path === "/api/v1/admin/manifest.json") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    const denied = await verifyCloudflareAccess(request, env);
+    if (denied) return denied;
     return manifestResponse(request, env);
   }
 
@@ -620,7 +787,7 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
 
   if (path === "/api/v1/admin/status") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
-    return adminStatusResponse(env);
+    return adminStatusResponse(request, env);
   }
 
   if (path === "/api/v1/admin/store-config") {
@@ -705,6 +872,8 @@ export default {
         if (method !== "GET" && method !== "HEAD") {
           return json({ success: false, error: "method_not_allowed" }, 405);
         }
+        const denied = await verifyCloudflareAccess(request, env);
+        if (denied) return adminAccessPage(denied.status);
         if (!env.ASSETS) {
           return json({ success: false, error: "static_assets_not_configured" }, 503);
         }
