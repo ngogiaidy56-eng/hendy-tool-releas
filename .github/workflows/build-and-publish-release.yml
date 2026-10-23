@@ -35,7 +35,7 @@ env:
   RELEASE_NOTES: ${{ inputs.notes || 'Automated web bundle validation build.' }}
 
 concurrency:
-  group: hendy-web-release-${{ inputs.version }}
+  group: hendy-web-release-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:

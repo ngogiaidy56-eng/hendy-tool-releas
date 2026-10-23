@@ -26,13 +26,9 @@ export default function App() {
   }, []);
 
   const openAdmin = () => {
-    if (resolveView() === 'admin') {
-      setView('admin');
-      return;
-    }
-    window.history.pushState({}, '', '/admin');
-    setView('admin');
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    if (resolveView() === 'admin') return;
+    // Force a real navigation so Cloudflare Access can authenticate /admin before serving the console.
+    window.location.assign('/admin');
   };
 
   const openStore = () => {
@@ -42,9 +38,8 @@ export default function App() {
       window.location.href = window.location.protocol + '//' + storeHost + '/';
       return;
     }
-    window.history.pushState({}, '', '/');
-    setView('store');
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    // Return through a real navigation rather than changing the URL in-place.
+    window.location.assign('/');
   };
 
   return view === 'admin'

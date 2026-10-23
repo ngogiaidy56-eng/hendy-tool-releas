@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowDownToLine, ArrowRight, Boxes, CheckCircle2, ChevronDown, ExternalLink,
-  FileArchive, Github, Grid2X2, Monitor, Package, Search, ShieldCheck,
+  ArrowDownToLine, ArrowRight, Boxes, ChevronDown, ExternalLink,
+  Github, Grid2X2, Monitor, Package, Search, ShieldCheck,
   Smartphone, Sparkles, Store, TerminalSquare, X
 } from 'lucide-react';
 
