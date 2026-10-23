@@ -145,6 +145,8 @@ test("published artifact streams from R2 with download headers", async () => {
 
 test("published releases endpoint lists real R2 objects", async () => {
   const bucket = {
+    async head() { return null; },
+    async get() { return null; },
     async list() {
       return {
         objects: [{
@@ -179,7 +181,13 @@ test("publish endpoint requires a configured secret before accepting uploads", a
   const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
     method: "POST",
     body: new FormData(),
-  }), {} satisfies Env);
+  }), {
+    RELEASES_BUCKET: {
+      async head() { return null; },
+      async get() { return null; },
+      async put() { return { size: 0 }; },
+    },
+  } satisfies Env);
   assert.equal(response.status, 503);
   const payload = await response.json() as { error: string };
   assert.equal(payload.error, "publish_not_configured");
