@@ -13,6 +13,8 @@ export interface AssetBinding {
 interface R2ObjectMetadata {
   size: number;
   etag?: string;
+  key?: string;
+  uploaded?: Date | string;
   httpMetadata?: { contentType?: string };
   customMetadata?: Record<string, string>;
 }
