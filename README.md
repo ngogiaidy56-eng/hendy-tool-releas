@@ -89,7 +89,7 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` fir
 
 Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow runs the Vite production build, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Configure the GitHub Actions secret `RELEASE_PUBLISH_TOKEN` and the Cloudflare Worker secret with the same value; the secret is never embedded into the UI. The direct upload API limit is 25 MB.
 
-Interactive admins authenticate through Cloudflare Access. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`; protect `/admin*`, `/admin.html`, and `/api/v1/admin/*` with an Access application and an explicit admin allow-list. The Worker re-verifies the Access JWT, so opening the private UI does not depend on a client-side route check. CI publishes server-to-server using the GitHub Actions secret `RELEASE_PUBLISH_TOKEN`; that path does not expose the token to either UI.
+Interactive admins authenticate through Cloudflare Access. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `CF_ACCESS_ADMIN_EMAILS`; protect `/admin*`, `/studio*`, `/admin.html`, and `/api/v1/admin/*` with an Access application and an explicit admin allow-list. The Worker re-verifies the Access JWT and email allow-list, so opening the private UI does not depend on a client-side route check. CI publishes server-to-server using the GitHub Actions secret `RELEASE_PUBLISH_TOKEN`; that path does not expose the token to either UI.
 
 ## Release artifacts
 
