@@ -73,3 +73,18 @@ test("client-side routes are rewritten to index.html", async () => {
   assert.equal(response.status, 200);
   assert.match(await response.text(), /id="root"/);
 });
+
+test("release manifest is available and does not claim unpublished binaries are ready", async () => {
+  const response = await worker.fetch(request("/api/v1/public/manifest.json"), {} satisfies Env);
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { artifacts: Array<{ available: boolean; verified: boolean; url: string | null }> };
+  assert.equal(payload.artifacts.length, 2);
+  assert.ok(payload.artifacts.every((artifact) => !artifact.available && !artifact.verified && artifact.url === null));
+});
+
+test("artifact URL is routed to the release storage handler", async () => {
+  const response = await worker.fetch(request("/api/v1/downloads/artifacts/HendyToolsPro-3.2.0-Setup.exe"), {} satisfies Env);
+  assert.equal(response.status, 503);
+  const payload = await response.json() as { error: string };
+  assert.equal(payload.error, "release_storage_not_configured");
+});
