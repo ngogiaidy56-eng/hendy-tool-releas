@@ -553,13 +553,18 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
 }
 
 async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
-  if (!env.RELEASE_PUBLISH_TOKEN?.trim()) {
+  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
+  if (!expected) {
     return json({
       success: false,
       error: "publish_not_configured",
       message: "Worker Secret RELEASE_PUBLISH_TOKEN chưa được cấu hình trong Cloudflare.",
     }, 503);
   }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  // CI uses the same secret from GitHub Actions; the browser UI never receives it.
+  if (match && tokenMatches(match[1].trim(), expected)) return null;
   return verifyCloudflareAccess(request, env);
 }
 

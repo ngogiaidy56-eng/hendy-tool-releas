@@ -243,3 +243,46 @@ test("admin status endpoint never returns the configured publish token", async (
   assert.ok(!text.includes("must-not-leak"));
   assert.match(text, /"publishSecretConfigured": true/);
 });
+
+
+test("publish endpoint accepts a valid server-side CI bearer secret and stores a real artifact", async () => {
+  const stored = new Map<string, { body: ArrayBuffer; customMetadata?: Record<string, string> }>();
+  const bucket = {
+    async head(key: string) {
+      const item = stored.get(key);
+      return item ? { size: item.body.byteLength, customMetadata: item.customMetadata } : null;
+    },
+    async get(key: string) {
+      const item = stored.get(key);
+      if (!item) return null;
+      return { size: item.body.byteLength, customMetadata: item.customMetadata, httpMetadata: { contentType: "application/zip" }, body: new Response(item.body).body! };
+    },
+    async put(key: string, value: ArrayBuffer | ArrayBufferView | string, options?: { customMetadata?: Record<string, string> }) {
+      let body: ArrayBuffer;
+      if (typeof value === "string") body = new TextEncoder().encode(value).buffer;
+      else if (value instanceof ArrayBuffer) body = value;
+      else body = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
+      stored.set(key, { body, customMetadata: options?.customMetadata });
+      return { size: body.byteLength, key, customMetadata: options?.customMetadata };
+    },
+    async list() { return { objects: [] }; },
+  };
+  const form = new FormData();
+  form.set("appName", "Demo Web App");
+  form.set("appSlug", "demo-web-app");
+  form.set("version", "1.2.3");
+  form.set("platform", "web");
+  form.set("releaseNotes", "CI-generated release archive");
+  form.set("file", new File([new Uint8Array([1, 2, 3, 4])], "demo-web-app.zip", { type: "application/zip" }));
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+    method: "POST",
+    headers: { Authorization: "Bearer ci-publisher-secret" },
+    body: form,
+  }), { RELEASE_PUBLISH_TOKEN: "ci-publisher-secret", RELEASES_BUCKET: bucket } satisfies Env);
+  assert.equal(response.status, 201);
+  const payload = await response.json() as { key: string; sha256: string; downloadUrl: string };
+  assert.equal(payload.key, "published/demo-web-app/1.2.3/demo-web-app.zip");
+  assert.equal(payload.sha256, "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a");
+  assert.ok(stored.has(payload.key));
+  assert.ok(payload.downloadUrl.includes("/api/v1/published/downloads/"));
+});
