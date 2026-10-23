@@ -77,7 +77,7 @@ test("the root URL serves the compiled SPA index document", async () => {
 test("admin UI shows a private setup page if Cloudflare Access variables are missing", async () => {
   const response = await worker.fetch(request("/admin"), { ASSETS: fakeAssets } satisfies Env);
   assert.equal(response.status, 503);
-  assert.match(response.headers.get("content-type") || "", /text\\/html/);
+  assert.match(response.headers.get("content-type") || "", /text.html/);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("x-robots-tag"), "noindex, nofollow");
   assert.match(await response.text(), /Access setup required/);
@@ -91,7 +91,7 @@ test("admin UI and status API reject requests without a Cloudflare Access assert
   } satisfies Env;
   const uiResponse = await worker.fetch(request("/admin"), env);
   assert.equal(uiResponse.status, 401);
-  assert.match(uiResponse.headers.get("content-type") || "", /text\\/html/);
+  assert.match(uiResponse.headers.get("content-type") || "", /text.html/);
   assert.match(await uiResponse.text(), /Authentication required/);
 
   const statusResponse = await worker.fetch(request("/api/v1/admin/status"), env);
