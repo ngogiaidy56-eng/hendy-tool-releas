@@ -174,7 +174,7 @@ test("published releases endpoint lists real R2 objects", async () => {
   assert.equal(payload.total, 1);
   assert.equal(payload.releases[0].fileName, "demo-app.zip");
   assert.equal(payload.releases[0].sha256, "c".repeat(64));
-  assert.match(payload.releases[0].downloadUrl, /published\\/downloads/);
+  assert.ok(payload.releases[0].downloadUrl.includes("/api/v1/published/downloads/"));
 });
 
 test("publish endpoint requires a configured secret before accepting uploads", async () => {
