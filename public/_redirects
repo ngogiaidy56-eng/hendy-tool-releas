@@ -1,2 +1,9 @@
-# Cloudflare Pages SPA Routing
+# Private administration is served only by the Worker after Cloudflare Access validation.
+/admin /404.html 404
+/admin/* /404.html 404
+/admin.html /404.html 404
+/studio /404.html 404
+/studio/* /404.html 404
+
+# Cloudflare Pages public storefront SPA routing.
 /* /index.html 200
