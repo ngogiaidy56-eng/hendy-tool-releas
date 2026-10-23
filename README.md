@@ -79,8 +79,9 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` fir
 - User storefront: `/` (and `/store`) lists actual published R2 artifacts; downloads are enabled only when the API returns a real object.
 - Admin Studio: `/admin` provides source ZIP import, SemVer release metadata, browser ZIP packaging, real SHA-256 calculation, artifact upload, release history, and publish-token configuration.
 - Browser packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`. It does not compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on the corresponding CI runner, then uploaded as artifacts.
-- For the R2 publish API, configure the Worker secret `RELEASE_PUBLISH_TOKEN` (`npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml`) and provide the same value in Studio. Keep the token out of Git. The direct upload endpoint currently accepts files up to 25 MB; larger binaries need a presigned/multipart upload service.
-- Protect `/admin` using Cloudflare Access or your organization’s authenticated gateway. The UI route is not an authentication boundary; the publish API requires the bearer secret.
+- `RELEASE_PUBLISH_TOKEN` is integrated server-side as a Cloudflare Worker secret and is never sent to the browser. Configure it once with `npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml` or the Cloudflare Dashboard. The UI does not ask administrators to paste the token.
+- Configure Worker variables `CF_ACCESS_TEAM_DOMAIN=https://<your-team>.cloudflareaccess.com` and `CF_ACCESS_AUD=<Access application AUD tag>`. Create a Cloudflare Access self-hosted application and protect `/admin*` plus `/api/v1/admin/*`; the Worker independently verifies the signed `Cf-Access-Jwt-Assertion` issuer, audience, expiration, and signature before changing releases/store settings. See [Cloudflare JWT validation docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
+- The direct upload endpoint currently accepts files up to 25 MB; larger binaries need a presigned/multipart upload service. Do not place `RELEASE_PUBLISH_TOKEN` in the repository, frontend bundle, or browser storage.
 
 ## Release artifacts
 

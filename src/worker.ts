@@ -28,7 +28,7 @@ export interface ReleaseBucketBinding {
   get(key: string): Promise<R2ObjectBody | null>;
   put?(
     key: string,
-    value: ArrayBuffer,
+    value: ArrayBuffer | ArrayBufferView | string,
     options?: { httpMetadata?: { contentType?: string }; customMetadata?: Record<string, string> }
   ): Promise<R2ObjectMetadata>;
   list?(options?: { prefix?: string; limit?: number; include?: string[] }): Promise<{
@@ -45,6 +45,8 @@ export interface Env {
   APP_NAME?: string;
   PUBLIC_BASE_URL?: string;
   RELEASE_PUBLISH_TOKEN?: string;
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
 }
 
 type ReleaseRecord = {
@@ -325,6 +327,8 @@ async function publishedReleasesResponse(request: Request, env: Env): Promise<Re
 }
 
 async function publishArtifact(request: Request, env: Env): Promise<Response> {
+  const denied = await authorizeAdmin(request, env);
+  if (denied) return denied;
   if (!env.RELEASES_BUCKET || !env.RELEASES_BUCKET.put) {
     return json({
       success: false,
@@ -332,20 +336,6 @@ async function publishArtifact(request: Request, env: Env): Promise<Response> {
       message: "R2 bucket hoặc quyền put chưa sẵn sàng cho API publish.",
     }, 503);
   }
-  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
-  if (!expected) {
-    return json({
-      success: false,
-      error: "publish_not_configured",
-      message: "Worker secret RELEASE_PUBLISH_TOKEN chưa được cấu hình.",
-    }, 503);
-  }
-  const authorization = request.headers.get("Authorization") || "";
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  if (!match || !tokenMatches(match[1].trim(), expected)) {
-    return json({ success: false, error: "unauthorized", message: "Token publish không hợp lệ." }, 401);
-  }
-
   let form: FormData;
   try {
     form = await request.formData();
@@ -447,6 +437,178 @@ async function downloadPublishedArtifact(request: Request, env: Env): Promise<Re
   return new Response(object.body, { status: 200, headers });
 }
 
+
+type StorefrontConfig = {
+  brandName: string;
+  announcement: string;
+  heroEyebrow: string;
+  heroTitle: string;
+  heroAccent: string;
+  heroDescription: string;
+  supportUrl: string;
+  repositoryUrl: string;
+};
+
+const DEFAULT_STOREFRONT_CONFIG: StorefrontConfig = {
+  brandName: "Hendy Store",
+  announcement: "",
+  heroEyebrow: "ỨNG DỤNG · CÔNG CỤ · BẢN PHÁT HÀNH",
+  heroTitle: "Tất cả ứng dụng",
+  heroAccent: "trong một nơi.",
+  heroDescription: "Khám phá ứng dụng và tải xuống các bản phát hành thật, với thông tin phiên bản và mã kiểm tra tệp rõ ràng.",
+  supportUrl: "",
+  repositoryUrl: "https://github.com/ngogiaidy56-eng/hendy-tool-releas",
+};
+
+function parseStorefrontConfig(value: unknown): StorefrontConfig {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const clean = (key: keyof StorefrontConfig, fallback: string, max = 500): string => {
+    const input = record[key];
+    return typeof input === "string" ? input.trim().slice(0, max) : fallback;
+  };
+  const safeUrl = (raw: string): string => {
+    if (!raw) return "";
+    try {
+      const url = new URL(raw);
+      return url.protocol === "https:" ? url.toString() : "";
+    } catch { return ""; }
+  };
+  return {
+    brandName: clean("brandName", DEFAULT_STOREFRONT_CONFIG.brandName, 70) || DEFAULT_STOREFRONT_CONFIG.brandName,
+    announcement: clean("announcement", "", 240),
+    heroEyebrow: clean("heroEyebrow", DEFAULT_STOREFRONT_CONFIG.heroEyebrow, 100),
+    heroTitle: clean("heroTitle", DEFAULT_STOREFRONT_CONFIG.heroTitle, 100),
+    heroAccent: clean("heroAccent", DEFAULT_STOREFRONT_CONFIG.heroAccent, 100),
+    heroDescription: clean("heroDescription", DEFAULT_STOREFRONT_CONFIG.heroDescription, 500),
+    supportUrl: safeUrl(clean("supportUrl", "", 500)),
+    repositoryUrl: safeUrl(clean("repositoryUrl", DEFAULT_STOREFRONT_CONFIG.repositoryUrl, 500)) || DEFAULT_STOREFRONT_CONFIG.repositoryUrl,
+  };
+}
+
+function decodeJwtPart(value: string): Record<string, unknown> | null {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+  } catch { return null; }
+}
+
+async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
+  const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
+  const expectedAudience = env.CF_ACCESS_AUD?.trim();
+  if (!teamDomain || !expectedAudience) {
+    return json({
+      success: false,
+      error: "admin_access_not_configured",
+      message: "Cần cấu hình CF_ACCESS_TEAM_DOMAIN và CF_ACCESS_AUD để bật xác thực Cloudflare Access.",
+    }, 503);
+  }
+  try {
+    const issuer = new URL(teamDomain);
+    if (issuer.protocol !== "https:" || !issuer.hostname.endsWith(".cloudflareaccess.com")) throw new Error("Invalid team domain");
+  } catch {
+    return json({ success: false, error: "invalid_access_config", message: "CF_ACCESS_TEAM_DOMAIN phải là HTTPS team domain của Cloudflare Access." }, 503);
+  }
+
+  const token = request.headers.get("Cf-Access-Jwt-Assertion");
+  if (!token) return json({
+    success: false,
+    error: "cloudflare_access_required",
+    message: "Đăng nhập qua Cloudflare Access để thực hiện thao tác quản trị.",
+  }, 401);
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return json({ success: false, error: "invalid_access_token" }, 401);
+  const header = decodeJwtPart(parts[0]);
+  const claims = decodeJwtPart(parts[1]);
+  const kid = typeof header?.kid === "string" ? header.kid : "";
+  if (!header || header.alg !== "RS256" || !claims || !kid) return json({ success: false, error: "invalid_access_token" }, 401);
+
+  const now = Math.floor(Date.now() / 1000);
+  const aud = claims.aud;
+  const audMatches = Array.isArray(aud) ? aud.includes(expectedAudience) : aud === expectedAudience;
+  if (claims.iss !== teamDomain || !audMatches || typeof claims.exp !== "number" || claims.exp <= now ||
+      (typeof claims.nbf === "number" && claims.nbf > now)) {
+    return json({ success: false, error: "access_claims_invalid", message: "Access JWT hết hạn hoặc không khớp issuer/audience." }, 401);
+  }
+
+  try {
+    const keyResponse = await fetch(teamDomain + "/cdn-cgi/access/certs", { headers: { Accept: "application/json" } });
+    if (!keyResponse.ok) throw new Error("Could not load Access signing keys");
+    const keySet = await keyResponse.json() as { keys?: JsonWebKey[] };
+    const jwk = keySet.keys?.find((key) => (key as JsonWebKey & { kid?: string }).kid === kid);
+    if (!jwk) throw new Error("Signing key was not found");
+    const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+    const encodedSig = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+    const sigBytes = Uint8Array.from(atob(encodedSig + "=".repeat((4 - encodedSig.length % 4) % 4)), (character) => character.charCodeAt(0));
+    const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, sigBytes, new TextEncoder().encode(parts[0] + "." + parts[1]));
+    if (!valid) throw new Error("JWT signature did not verify");
+    return null;
+  } catch (error) {
+    console.error("Cloudflare Access validation error", error);
+    return json({ success: false, error: "access_verification_failed", message: "Không xác minh được danh tính qua Cloudflare Access." }, 401);
+  }
+}
+
+async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
+  if (!env.RELEASE_PUBLISH_TOKEN?.trim()) {
+    return json({
+      success: false,
+      error: "publish_not_configured",
+      message: "Worker Secret RELEASE_PUBLISH_TOKEN chưa được cấu hình trong Cloudflare.",
+    }, 503);
+  }
+  return verifyCloudflareAccess(request, env);
+}
+
+async function storefrontConfigResponse(env: Env): Promise<Response> {
+  if (!env.RELEASES_BUCKET) return json({ success: true, config: DEFAULT_STOREFRONT_CONFIG, source: "defaults" });
+  const stored = await env.RELEASES_BUCKET.get("config/storefront.json");
+  if (!stored) return json({ success: true, config: DEFAULT_STOREFRONT_CONFIG, source: "defaults" });
+  try {
+    const text = await new Response(stored.body).text();
+    return json({ success: true, config: parseStorefrontConfig(JSON.parse(text)), source: "r2" });
+  } catch {
+    return json({ success: true, config: DEFAULT_STOREFRONT_CONFIG, source: "defaults", warning: "stored_config_invalid" });
+  }
+}
+
+async function adminStatusResponse(env: Env): Promise<Response> {
+  return json({
+    success: true,
+    storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
+    publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
+    accessConfigured: Boolean(env.CF_ACCESS_TEAM_DOMAIN?.trim() && env.CF_ACCESS_AUD?.trim()),
+    nativeBuilders: {
+      windows: "ci-runner-required",
+      android: "android-sdk-required",
+      ios: "macos-xcode-runner-required",
+      macos: "macos-runner-required",
+      linux: "linux-runner-required",
+    },
+    limits: { directUploadBytes: 25 * 1024 * 1024, sourceBundleBytes: 50 * 1024 * 1024 },
+  });
+}
+
+async function saveStorefrontConfig(request: Request, env: Env): Promise<Response> {
+  const denied = await authorizeAdmin(request, env);
+  if (denied) return denied;
+  if (!env.RELEASES_BUCKET?.put) return json({ success: false, error: "publish_storage_unavailable" }, 503);
+  let body: unknown;
+  try { body = await request.json(); }
+  catch { return json({ success: false, error: "invalid_json" }, 400); }
+  const candidate = body && typeof body === "object" ? (body as Record<string, unknown>).config : null;
+  const config = parseStorefrontConfig(candidate);
+  const encoded = new TextEncoder().encode(JSON.stringify(config, null, 2));
+  await env.RELEASES_BUCKET.put("config/storefront.json", encoded, {
+    httpMetadata: { contentType: "application/json; charset=utf-8" },
+    customMetadata: { updatedAt: new Date().toISOString(), type: "storefront-config" },
+  });
+  return json({ success: true, message: "Đã lưu cấu hình giao diện cửa hàng vào R2.", config });
+}
+
 async function routeApi(request: Request, env: Env): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -539,6 +701,21 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
     });
   }
 
+
+  if (path === "/api/v1/store-config") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    return storefrontConfigResponse(env);
+  }
+
+  if (path === "/api/v1/admin/status") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    return adminStatusResponse(env);
+  }
+
+  if (path === "/api/v1/admin/store-config") {
+    if (method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
+    return saveStorefrontConfig(request, env);
+  }
 
   if (path === "/api/v1/published-releases") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);

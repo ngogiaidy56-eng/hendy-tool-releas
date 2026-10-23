@@ -193,13 +193,53 @@ test("publish endpoint requires a configured secret before accepting uploads", a
   assert.equal(payload.error, "publish_not_configured");
 });
 
-test("publish endpoint rejects an incorrect bearer token", async () => {
+test("publish endpoint requires Cloudflare Access settings even when publish secret exists", async () => {
   const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
     method: "POST",
-    headers: { Authorization: "Bearer wrong-token" },
     body: new FormData(),
-  }), { RELEASE_PUBLISH_TOKEN: "correct-token", RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; } } } satisfies Env);
+  }), {
+    RELEASE_PUBLISH_TOKEN: "configured-secret",
+    RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; } },
+  } satisfies Env);
+  assert.equal(response.status, 503);
+  const payload = await response.json() as { error: string };
+  assert.equal(payload.error, "admin_access_not_configured");
+});
+
+test("publish endpoint rejects requests without a Cloudflare Access assertion", async () => {
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+    method: "POST",
+    body: new FormData(),
+  }), {
+    RELEASE_PUBLISH_TOKEN: "configured-secret",
+    CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
+    CF_ACCESS_AUD: "access-audience",
+    RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; } },
+  } satisfies Env);
   assert.equal(response.status, 401);
   const payload = await response.json() as { error: string };
-  assert.equal(payload.error, "unauthorized");
+  assert.equal(payload.error, "cloudflare_access_required");
+});
+
+
+test("storefront config endpoint returns an editable default configuration", async () => {
+  const response = await worker.fetch(request("/api/v1/store-config"), {} satisfies Env);
+  assert.equal(response.status, 200);
+  const payload = await response.json() as { success: boolean; config: { brandName: string; heroTitle: string } };
+  assert.equal(payload.success, true);
+  assert.equal(payload.config.brandName, "Hendy Store");
+  assert.equal(payload.config.heroTitle, "Tất cả ứng dụng");
+});
+
+test("admin status endpoint never returns the configured publish token", async () => {
+  const response = await worker.fetch(request("/api/v1/admin/status"), {
+    RELEASE_PUBLISH_TOKEN: "must-not-leak",
+    CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
+    CF_ACCESS_AUD: "access-audience",
+    RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
+  } satisfies Env);
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.ok(!text.includes("must-not-leak"));
+  assert.match(text, /"publishSecretConfigured": true/);
 });
