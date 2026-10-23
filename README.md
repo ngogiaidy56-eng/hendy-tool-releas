@@ -14,11 +14,9 @@ The GitHub workflow `.github/workflows/deploy-cloudflare.yml` validates the app,
 
 ### 1. Create the Pages project once
 
-In Cloudflare Dashboard → **Workers & Pages**, create/connect a Pages project named exactly:
+In Cloudflare Dashboard → **Workers & Pages**, create a Pages project named exactly `hendy-tool-releas`. This GitHub Actions workflow publishes prebuilt assets using Wrangler Direct Upload. For a new project, choose **Direct Upload** rather than Git integration. If this Pages project is already connected to Git integration, disable its automatic production-branch deployments before using this workflow so two deployment pipelines do not race.
 
-`hendy-tool-releas`
-
-Use the repository root as the project root. For a dashboard-managed build, set:
+Use the repository root as the project root. If the dashboard asks for build settings, set:
 
 - Build command: `npm run build`
 - Build output directory: `dist`
