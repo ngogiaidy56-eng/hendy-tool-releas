@@ -53,7 +53,7 @@ Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.
 - `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
 - `functions/api/[[path]].ts`: optional Pages Functions API gateway. Set `BACKEND_ORIGIN=https://hendy-tool-releas.ngogiaidy56.workers.dev` in the Pages project's production environment if API paths should proxy to the Worker.
 - `server.ts`: optional Express server for Node/Render. Cloudflare Workers does not run this file.
-- `.github/workflows/deploy-cloudflare.yml`: manual workflow for the separate Pages Direct Upload project. The primary Worker deploy is handled by Cloudflare Workers Builds to avoid two production deploy systems competing over the same Worker.
+- `.github/workflows/deploy-cloudflare.yml`: manual optional Pages Direct Upload for the public storefront only; it removes `dist/admin.html` before upload. The Pages API gateway fails closed for admin routes unless `BACKEND_ORIGIN` forwards them to the authenticated primary Worker. The primary Worker deploy is handled by Cloudflare Workers Builds to avoid two production deploy systems competing over the same Worker.
 
 ## Local validation / manual deployment
 
