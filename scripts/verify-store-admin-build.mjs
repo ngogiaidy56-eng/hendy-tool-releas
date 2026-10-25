@@ -9,6 +9,7 @@ const adminEntry = read("src/admin-main.tsx");
 const publicApp = read("src/App.tsx");
 const viteConfig = read("vite.config.ts");
 const worker = read("src/worker.ts");
+const workerTests = read("src/utils/workerRoutes.test.ts");
 const wrangler = read("wrangler.toml");
 const pagesGateway = read("functions/api/[[path]].ts");
 const accessProvisioner = read("scripts/provision-cloudflare-access.mjs");
@@ -40,7 +41,14 @@ assert.match(wrangler, /run_worker_first\s*=\s*\[[^\]]*\/admin\*/, "Static Asset
 assert.ok(worker.includes("function runtimeChecks(env: Env)"), "Worker must expose runtime readiness checks");
 assert.ok(worker.includes('/api/v1/runtime/readiness'), "Worker must expose a non-secret runtime readiness endpoint");
 assert.ok(worker.includes("expectedAudiences.some((expected) => aud.includes(expected))"), "Worker must support multiple protected-path Access audiences");
-assert.ok(worker.includes("if (expected && match && tokenMatches"), "Optional CI token must not block interactive Access auth");
+const adminAuthStart = worker.indexOf("async function authorizeAdmin(");
+const adminAuthEnd = worker.indexOf("\\n}", adminAuthStart);
+assert.ok(adminAuthStart >= 0 && adminAuthEnd > adminAuthStart, "Worker Admin authorizer must exist");
+const adminAuth = worker.slice(adminAuthStart, adminAuthEnd);
+assert.ok(adminAuth.includes("return verifyCloudflareAccess(request, env)"), "All interactive Admin API calls must use Cloudflare Access");
+assert.doesNotMatch(adminAuth, /RELEASE_PUBLISH_TOKEN|tokenMatches/, "CI publisher secret must not authorize general Admin API operations");
+assert.ok(workerTests.includes("CI publisher token cannot authorize interactive Admin configuration changes"), "Regression test must enforce separate CI and Admin privileges");
+
 assert.ok(worker.includes("accessConfigured: isCloudflareAccessConfigured(env)"), "Admin status must share Access config validation");
 assert.ok(accessProvisioner.includes("ensureOneTimePinIdentityProvider"), "Provisioner must create email OTP login if needed");
 assert.ok(accessProvisioner.includes("ensureAdminApplications(teamDomain, identityProviderId)"), "Provisioner must bind Access login to the path-protected apps");
