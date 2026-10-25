@@ -61,7 +61,7 @@ Useful links:
 ## Repository deployment files
 
 - `src/worker.ts`: Worker request router for the frontend, health checks, API metadata, release listing, update checks, manifests and R2 artifact delivery.
-- `wrangler.toml`: **canonical Worker configuration** for Cloudflare Workers Builds. This is the file used by `npm run deploy:worker`; Worker assets are read from `.worker-dist/`.
+- `wrangler.toml`: **canonical production Worker configuration** for the GitHub Actions deployment. This is the file used by `npm run deploy:worker`; Worker assets are read from `.worker-dist/`.
 - `scripts/prepare-worker-assets.mjs`: prepares `.worker-dist/` from `dist/` and removes only the Pages `_redirects` catch-all rewrite, which Cloudflare Workers rejects as a redirect loop. The original `dist/` remains unchanged for Pages deployment.
 - `wrangler.worker.toml`: compatibility copy of the Worker config for older manual commands. It also points to `.worker-dist/`; prefer the root `wrangler.toml` for Workers Builds.
 - `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
@@ -107,7 +107,7 @@ For local manual Worker deployment, authenticate with `npx wrangler@4 login` and
 
 Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow builds the production web app, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Before publishing it generates a temporary token if necessary and synchronizes it to the Worker Secret via Wrangler; the token is never embedded in the UI. The direct upload API limit is 25 MB.
 
-Interactive admins authenticate through Cloudflare Access. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `CF_ACCESS_ADMIN_EMAILS`; protect `/admin*`, `/studio*`, `/admin.html`, and `/api/v1/admin/*` with an Access application and an explicit admin allow-list. The Worker re-verifies the Access JWT and email allow-list, so opening the private UI does not depend on a client-side route check. CI publishes server-to-server using the GitHub Actions secret `RELEASE_PUBLISH_TOKEN`; that path does not expose the token to either UI.
+Interactive admins authenticate through the path-specific Cloudflare Access applications created by GitHub Actions. The provisioner configures the email one-time-PIN login method and a strict allow-list. The Worker re-verifies the JWT issuer, path-specific audience, expiry, signature and email allow-list, so access never depends on a client-side route check. CI publishes server-to-server through a separately scoped publisher secret; neither UI receives it.
 
 ## Release artifacts
 
