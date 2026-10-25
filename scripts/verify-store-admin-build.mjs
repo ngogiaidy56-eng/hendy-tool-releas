@@ -60,6 +60,9 @@ assert.ok(deployWorkflow.includes("wrangler.bootstrap.toml"), "CI must bootstrap
 assert.ok(deployWorkflow.includes("--secrets-file"), "CI must upload the runtime secret bundle during final Worker deploy");
 assert.ok(deployWorkflow.includes("smoke-test-cloudflare.mjs"), "CI must smoke-test Worker and Pages after deploy");
 assert.ok(deployWorkflow.includes("pages functions build functions --outfile=dist/_worker.js"), "Pages Functions must be bundled into the Direct Upload output");
+assert.ok(deployWorkflow.includes("--output-routes-path=dist/_routes.json"), "Pages Functions route manifest must be emitted with the Worker bundle");
+assert.ok(deployWorkflow.includes("test -s dist/_routes.json"), "Deployment must fail if the Pages route manifest is missing");
+
 assert.ok(deployWorkflow.includes("--no-bundle"), "Pages Direct Upload must upload the already-built Functions bundle");
 assert.ok(packageJson.scripts["deploy:pages"].includes("pages functions build functions --outfile=dist/_worker.js"), "Manual Pages deployment must also build its Functions bundle");
 assert.ok(worker.includes('authorization.match(/^Bearer\\s+(.+)$/i)'), "CI publisher must correctly parse a Bearer token");
