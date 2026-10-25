@@ -39,5 +39,9 @@ jobs:
       - name: Unit tests
         run: npm test
 
-      - name: Build frontend
-        run: npm run build
+      - name: Build storefront and Admin applications
+        run: |
+          npm run build
+          node scripts/verify-store-admin-build.mjs
+          test -s dist/index.html
+          test -s dist/admin.html
