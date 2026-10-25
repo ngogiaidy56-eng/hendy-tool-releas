@@ -1,8 +1,14 @@
 /**
- * Cloudflare Pages Functions - Edge API Gateway & Standalone Router
- * Hỗ trợ chạy trực tiếp trên Cloudflare Pages / Workers Edge hoặc chuyển tiếp (proxy) tới Render Backend nếu có BACKEND_ORIGIN.
+ * Cloudflare Pages API gateway.
+ *
+ * The Pages deployment is storefront-only. All public API data is served by the
+ * primary Worker/R2 backend; this function never fabricates releases, checksums,
+ * telemetry or successful responses when the backend is unavailable.
+ *
+ * The private Admin Console must be opened on the primary Worker/Admin host so
+ * Cloudflare Access can issue an assertion for the correct application audience.
+ * Admin endpoints are therefore rejected at this Pages origin.
  */
-
 interface Env {
   BACKEND_ORIGIN?: string;
   ENVIRONMENT?: string;
@@ -11,153 +17,98 @@ interface Env {
 interface Context {
   request: Request;
   env: Env;
-  params: {
-    path?: string[];
-  };
+  params: { path?: string[] | string };
+}
+
+const DEFAULT_BACKEND_ORIGIN = "https://hendy-tool-releas.ngogiaidy56.workers.dev";
+
+function jsonError(status: number, error: string, message: string): Response {
+  return new Response(JSON.stringify({
+    success: false,
+    error,
+    message,
+    runtime: "cloudflare-pages",
+    timestamp: new Date().toISOString(),
+  }), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+    },
+  });
 }
 
 export async function onRequest(context: Context): Promise<Response> {
   const { request, env, params } = context;
   const url = new URL(request.url);
-  const pathParts = Array.isArray(params.path) ? params.path : (params.path ? [params.path] : []);
-  const subPath = pathParts.join('/');
+  const pathParts = Array.isArray(params.path)
+    ? params.path
+    : (params.path ? [params.path] : []);
+  const subPath = pathParts.join("/").replace(/^\/+|\/+$/g, "");
 
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'X-Content-Type-Options': 'nosniff',
-  };
-
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers });
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+        "Access-Control-Max-Age": "86400",
+        "Vary": "Origin",
+      },
+    });
   }
 
-  // Nếu đã cấu hình BACKEND_ORIGIN và không phải là route standalone, proxy sang backend
-  if (env.BACKEND_ORIGIN && !subPath.startsWith('edge-')) {
-    try {
-      const backend = new URL(env.BACKEND_ORIGIN);
-      const target = new URL(backend.toString());
-      target.pathname = url.pathname;
-      target.search = url.search;
+  if (subPath === "v1/admin" || subPath.startsWith("v1/admin/") ||
+      subPath === "admin" || subPath.startsWith("admin/")) {
+    return jsonError(
+      403,
+      "admin_requires_primary_origin",
+      "Admin chỉ hoạt động trên Worker chính, nơi Cloudflare Access xác thực đúng ứng dụng. Hãy mở không gian quản trị trên domain Worker/Admin đã cấu hình."
+    );
+  }
 
-      const upstream = new Request(target.toString(), request);
-      const response = await fetch(upstream);
-      const respHeaders = new Headers(response.headers);
-      respHeaders.set('Access-Control-Allow-Origin', '*');
-      respHeaders.set('X-Content-Type-Options', 'nosniff');
-      return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: respHeaders,
-      });
-    } catch {
-      // Tiếp tục xử lý fallback tại Edge nếu backend không phản hồi
+  const backendOrigin = (env.BACKEND_ORIGIN || DEFAULT_BACKEND_ORIGIN).trim();
+  let backend: URL;
+  try {
+    backend = new URL(backendOrigin);
+    if (backend.protocol !== "https:" || backend.username || backend.password) {
+      throw new Error("BACKEND_ORIGIN must be a trusted HTTPS origin");
     }
+  } catch {
+    return jsonError(503, "backend_origin_invalid", "BACKEND_ORIGIN phải là một URL HTTPS hợp lệ.");
   }
 
-  // Never emulate admin endpoints locally. If proxying to the authenticated Worker is not
-  // configured (or the upstream call failed), return a closed error instead of a fake success.
-  if (subPath === 'v1/admin' || subPath.startsWith('v1/admin/')) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: 'admin_backend_not_configured',
-        message: 'Admin API phải được chuyển tiếp tới Worker đã xác thực Cloudflare Access.',
-      }),
-      { status: 503, headers: { ...headers, 'Cache-Control': 'no-store' } }
+  const target = new URL(backend.origin);
+  target.pathname = url.pathname;
+  target.search = url.search;
+  target.hash = "";
+
+  try {
+    const upstreamRequest = new Request(target.toString(), request);
+    const upstreamResponse = await fetch(upstreamRequest);
+    const headers = new Headers(upstreamResponse.headers);
+    headers.set("X-Content-Type-Options", "nosniff");
+    headers.set("X-Frame-Options", "DENY");
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    if (url.pathname.startsWith("/api/")) headers.set("Cache-Control", "no-store");
+    return new Response(request.method === "HEAD" ? null : upstreamResponse.body, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers,
+    });
+  } catch {
+    return jsonError(
+      502,
+      "backend_unavailable",
+      "Không kết nối được Worker API chính. Dữ liệu không được giả lập; hãy kiểm tra trạng thái Worker và binding R2."
     );
   }
-
-  // --- Edge Native API Handlers ---
-
-  // GET /api/health hoặc /api/v1/health
-  if (subPath === 'health' || subPath === 'v1/health' || subPath === '') {
-    return new Response(
-      JSON.stringify({
-        status: 'healthy',
-        service: 'Hendy Tools Cloudflare Pages Edge Gateway',
-        runtime: 'Cloudflare Workers (V8)',
-        timestamp: new Date().toISOString(),
-        version: '3.1.2',
-        airGapped: true,
-      }),
-      { status: 200, headers }
-    );
-  }
-
-  // GET /api/releases
-  if (subPath === 'releases' || subPath === 'v1/releases') {
-    return new Response(
-      JSON.stringify({
-        success: true,
-        provider: 'Cloudflare Pages & Workers Edge',
-        releases: [
-          {
-            version: '3.1.2',
-            platform: 'windows',
-            channel: 'stable',
-            fileName: 'HendyToolsPro-3.1.2-Setup.exe',
-            sha256: '9f833a69a3b684cb3e0a2944b02927e163533446955a8f57297ff055f10667e8',
-            size: 49283072,
-            downloadUrl: '/api/v1/releases/download?platform=windows&channel=stable',
-          },
-          {
-            version: '3.1.2',
-            platform: 'android',
-            channel: 'stable',
-            fileName: 'HendyTools-3.1.2-arm64.apk',
-            sha256: '4b29c9a6e11894a457008cf82f672ea34b3e34b92b0a96939e6df74e3da8f991',
-            size: 28419072,
-            downloadUrl: '/api/v1/releases/download?platform=android&channel=stable',
-          },
-        ],
-      }),
-      { status: 200, headers }
-    );
-  }
-
-  // GET /api/telemetry
-  if (subPath === 'telemetry' || subPath === 'v1/telemetry') {
-    return new Response(
-      JSON.stringify({
-        cpuUsage: 26,
-        ramUsage: 4.3,
-        netDownMb: 3.4,
-        netUpMb: 1.1,
-        activeServices: 6,
-        uptime: '24 ngày 12 giờ',
-        edgeLocation: request.headers.get('cf-ipcountry') || 'VN',
-      }),
-      { status: 200, headers }
-    );
-  }
-
-  // GET /api/v1/domains
-  if (subPath === 'v1/domains' || subPath === 'domains') {
-    return new Response(
-      JSON.stringify({
-        success: true,
-        domains: [
-          { domain: 'hendytools.pages.dev', target: 'download', provider: 'cloudflare-pages', status: 'active' },
-          { domain: 'admin-hendytools.pages.dev', target: 'admin', provider: 'cloudflare-pages', status: 'active' },
-          { domain: 'tai-ve.forgeos.vn', target: 'download', provider: 'cloudflare-workers', status: 'active' },
-          { domain: 'quan-tri.forgeos.vn', target: 'studio', provider: 'cloudflare-workers', status: 'active' },
-        ],
-      }),
-      { status: 200, headers }
-    );
-  }
-
-  // Fallback endpoint
-  return new Response(
-    JSON.stringify({
-      success: true,
-      service: 'Hendy Tools Cloudflare Edge',
-      route: subPath,
-      timestamp: new Date().toISOString(),
-    }),
-    { status: 200, headers }
-  );
 }
