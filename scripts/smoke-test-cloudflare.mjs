@@ -79,5 +79,6 @@ console.log(JSON.stringify({
     workerCatalog: true,
     pagesProxy: true,
     pagesAdminDenied: true,
+    pagesCiPublisherDenied: true,
   },
 }, null, 2));
