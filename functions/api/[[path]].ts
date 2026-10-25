@@ -73,6 +73,14 @@ export async function onRequest(context: Context): Promise<Response> {
     );
   }
 
+  if (subPath === "v1/ci/publish") {
+    return jsonError(
+      403,
+      "ci_publish_requires_primary_origin",
+      "CI publishing chỉ được phép trên Worker chính; Pages không nhận endpoint phát hành."
+    );
+  }
+
   const backendOrigin = (env.BACKEND_ORIGIN || DEFAULT_BACKEND_ORIGIN).trim();
   let backend: URL;
   try {
