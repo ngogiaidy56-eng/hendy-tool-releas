@@ -220,6 +220,23 @@ test("published releases endpoint lists real R2 objects", async () => {
   assert.ok(payload.releases[0].downloadUrl.includes("/api/v1/published/downloads/"));
 });
 
+test("CI publish endpoint requires the server-only publisher token and accepts no Access fallback", async () => {
+  const requestWithToken = (token: string) => new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/ci/publish", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + token },
+    body: new FormData(),
+  });
+  const noToken = await worker.fetch(requestWithToken("wrong-token"), { RELEASE_PUBLISH_TOKEN: "correct-token" } satisfies Env);
+  assert.equal(noToken.status, 401);
+  assert.equal((await noToken.json() as { error: string }).error, "invalid_publish_token");
+  const missingToken = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/ci/publish", {
+    method: "POST",
+    body: new FormData(),
+  }), {} satisfies Env);
+  assert.equal(missingToken.status, 503);
+  assert.equal((await missingToken.json() as { error: string }).error, "publish_not_configured");
+});
+
 test("publish endpoint requires a valid admin authentication path when CI secret is absent", async () => {
   const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
     method: "POST",
@@ -404,7 +421,7 @@ test("publish endpoint accepts a valid server-side CI bearer secret and stores a
   form.set("platform", "web");
   form.set("releaseNotes", "CI-generated release archive");
   form.set("file", new File([new Uint8Array([1, 2, 3, 4])], "demo-web-app.zip", { type: "application/zip" }));
-  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/ci/publish", {
     method: "POST",
     headers: { Authorization: "Bearer ci-publisher-secret" },
     body: form,
