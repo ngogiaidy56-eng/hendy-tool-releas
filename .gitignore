@@ -8,5 +8,7 @@ coverage/
 !.env.example
 .playwright-cli/
 .worker-dist/
+.dev.vars
+.dev.vars.*
 .runtime/
 *.secrets.json
