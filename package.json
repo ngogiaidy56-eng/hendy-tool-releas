@@ -1,11 +1,11 @@
 {
   "name": "hendy-tool-releas",
   "private": true,
-  "version": "3.2.0",
+  "version": "4.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "npm run build:user && npm run build:admin && npm run build:operations",
     "start": "node server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -26,7 +26,11 @@
     "verify:pages": "node scripts/verify-three-pages-build.mjs",
     "dev:operations": "vite --config vite.operations.config.ts",
     "build:all": "npm run build && npm run build:pages",
-    "sync:app-store": "node scripts/sync-app-store-upstream.mjs"
+    "sync:app-store": "node scripts/sync-app-store-upstream.mjs",
+    "build:user": "vite build --config apps/web-user/vite.config.js",
+    "build:admin": "vite build --config apps/web-admin/vite.config.js",
+    "build:operations": "vite build --config apps/operations/vite.config.js",
+    "deploy:workers": "wrangler deploy --config workers/backend-api/wrangler.toml && wrangler deploy --config workers/edge-router/wrangler.toml && wrangler deploy --config workers/self-healing-bot/wrangler.toml"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
