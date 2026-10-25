@@ -498,12 +498,12 @@ function decodeJwtPart(value: string): Record<string, unknown> | null {
 
 function isCloudflareAccessConfigured(env: Env): boolean {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
-  const audience = env.CF_ACCESS_AUD?.trim();
+  const audiences = (env.CF_ACCESS_AUD || "").split(",").map((value) => value.trim()).filter(Boolean);
   const emails = (env.CF_ACCESS_ADMIN_EMAILS || "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-  if (!teamDomain || !audience || emails.length === 0) return false;
+  if (!teamDomain || audiences.length === 0 || emails.length === 0) return false;
   try {
     const issuer = new URL(teamDomain);
     return issuer.protocol === "https:" &&
@@ -526,12 +526,12 @@ function runtimeChecks(env: Env) {
 
 async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
-  const expectedAudience = env.CF_ACCESS_AUD?.trim();
+  const expectedAudiences = (env.CF_ACCESS_AUD || "").split(",").map((value) => value.trim()).filter(Boolean);
   const allowedAdminEmails = (env.CF_ACCESS_ADMIN_EMAILS || "")
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-  if (!teamDomain || !expectedAudience || allowedAdminEmails.length === 0) {
+  if (!teamDomain || expectedAudiences.length === 0 || allowedAdminEmails.length === 0) {
     return json({
       success: false,
       error: "admin_access_not_configured",
@@ -561,7 +561,9 @@ async function verifyCloudflareAccess(request: Request, env: Env): Promise<Respo
 
   const now = Math.floor(Date.now() / 1000);
   const aud = claims.aud;
-  const audMatches = Array.isArray(aud) ? aud.includes(expectedAudience) : aud === expectedAudience;
+  const audMatches = Array.isArray(aud)
+    ? expectedAudiences.some((expected) => aud.includes(expected))
+    : typeof aud === "string" && expectedAudiences.includes(aud);
   if (claims.iss !== teamDomain || !audMatches || typeof claims.exp !== "number" || claims.exp <= now ||
       (typeof claims.nbf === "number" && claims.nbf > now)) {
     return json({ success: false, error: "access_claims_invalid", message: "Access JWT hết hạn hoặc không khớp issuer/audience." }, 401);
