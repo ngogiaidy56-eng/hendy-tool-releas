@@ -237,6 +237,22 @@ test("CI publish endpoint requires the server-only publisher token and accepts n
   assert.equal((await missingToken.json() as { error: string }).error, "publish_not_configured");
 });
 
+test("CI publisher token cannot authorize interactive Admin configuration changes", async () => {
+  const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/store-config", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer ci-publisher-secret",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ config: { brandName: "Unexpected" } }),
+  }), {
+    RELEASE_PUBLISH_TOKEN: "ci-publisher-secret",
+    RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
+  } satisfies Env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json() as { error: string }).error, "admin_access_not_configured");
+});
+
 test("publish endpoint requires a valid admin authentication path when CI secret is absent", async () => {
   const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
     method: "POST",
