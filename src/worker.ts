@@ -662,12 +662,8 @@ async function authorizeCiPublisher(request: Request, env: Env): Promise<Respons
 }
 
 async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
-  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
-  const authorization = request.headers.get("Authorization") || "";
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  // CI can publish with a server-side token. Interactive admins still authenticate
-  // through Cloudflare Access even when the optional CI publisher token is absent.
-  if (expected && match && tokenMatches(match[1].trim(), expected)) return null;
+  // Interactive Admin API calls must always pass Access. The CI publisher token is
+  // intentionally accepted only by /api/v1/ci/publish, never for general Admin APIs.
   return verifyCloudflareAccess(request, env);
 }
 
