@@ -99,16 +99,6 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
     }
   };
 
-  const loadAdminStatus = async () => {
-    try {
-      const response = await fetch('/api/v1/admin/status', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
-      if (!response.ok) throw new Error('Không tải được trạng thái Worker API.');
-      setAdminStatus(await response.json());
-    } catch (error) {
-      setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không tải được trạng thái quản trị.' });
-    }
-  };
-
   const loadStoreConfig = async () => {
     try {
       const response = await fetch('/api/v1/store-config', { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
@@ -146,7 +136,6 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
 
   useEffect(() => {
     void loadReleases();
-    void loadAdminStatus();
     void loadStoreConfig();
   }, []);
 
