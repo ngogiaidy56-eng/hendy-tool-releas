@@ -58,7 +58,11 @@ jobs:
         run: npm run check:deployment
 
       - name: Build production website
-        run: npm run build
+        run: |
+          npm run build
+          node scripts/verify-store-admin-build.mjs
+          test -s dist/index.html
+          test -s dist/admin.html
 
       - name: Package website and calculate checksums
         run: npm run package:web-release
