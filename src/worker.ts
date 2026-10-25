@@ -496,6 +496,34 @@ function decodeJwtPart(value: string): Record<string, unknown> | null {
   } catch { return null; }
 }
 
+function isCloudflareAccessConfigured(env: Env): boolean {
+  const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
+  const audience = env.CF_ACCESS_AUD?.trim();
+  const emails = (env.CF_ACCESS_ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  if (!teamDomain || !audience || emails.length === 0) return false;
+  try {
+    const issuer = new URL(teamDomain);
+    return issuer.protocol === "https:" &&
+      issuer.hostname.endsWith(".cloudflareaccess.com") &&
+      !issuer.username && !issuer.password;
+  } catch {
+    return false;
+  }
+}
+
+function runtimeChecks(env: Env) {
+  return {
+    staticAssets: Boolean(env.ASSETS?.fetch),
+    releaseStorage: Boolean(env.RELEASES_BUCKET?.head && env.RELEASES_BUCKET?.get &&
+      env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
+    adminAccess: isCloudflareAccessConfigured(env),
+    ciPublisher: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
+  };
+}
+
 async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
   const expectedAudience = env.CF_ACCESS_AUD?.trim();
@@ -614,17 +642,11 @@ small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8
 
 async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
   const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
-  if (!expected) {
-    return json({
-      success: false,
-      error: "publish_not_configured",
-      message: "Worker Secret RELEASE_PUBLISH_TOKEN chưa được cấu hình trong Cloudflare.",
-    }, 503);
-  }
   const authorization = request.headers.get("Authorization") || "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
-  // CI uses the same secret from GitHub Actions; the browser UI never receives it.
-  if (match && tokenMatches(match[1].trim(), expected)) return null;
+  // CI can publish with a server-side token. Interactive admins still authenticate
+  // through Cloudflare Access even when the optional CI publisher token is absent.
+  if (expected && match && tokenMatches(match[1].trim(), expected)) return null;
   return verifyCloudflareAccess(request, env);
 }
 
@@ -686,6 +708,7 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
   if (path === "/health" || path === "/healthz" || path === "/api/health" || path === "/api/v1/health") {
     if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
     const cf = request as Request & { cf?: { colo?: string; country?: string } };
+    const checks = runtimeChecks(env);
     return json({
       status: "healthy",
       service: env.APP_NAME || "Hendy Tools Platform & App Downloader",
@@ -694,7 +717,32 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
       timestamp: new Date().toISOString(),
       edge: { colo: cf.cf?.colo ?? null, country: cf.cf?.country ?? null },
       frontend: baseUrl(request, env),
-      endpoints: ["/api/v1/meta", "/api/v1/releases", "/api/v1/update-check", "/api/v1/domains"],
+      readiness: {
+        adminUi: checks.staticAssets && checks.adminAccess,
+        releaseApi: checks.releaseStorage,
+        ciPublisher: checks.ciPublisher,
+      },
+      endpoints: ["/api/v1/meta", "/api/v1/releases", "/api/v1/runtime/readiness", "/api/v1/domains"],
+    });
+  }
+
+  if (path === "/api/v1/runtime/readiness") {
+    if (!isGet) return json({ success: false, error: "method_not_allowed" }, 405);
+    const checks = runtimeChecks(env);
+    return json({
+      success: true,
+      service: env.APP_NAME || "Hendy Tools Platform & App Downloader",
+      environment: env.ENVIRONMENT || "production",
+      checkedAt: new Date().toISOString(),
+      ready: checks.staticAssets && checks.releaseStorage && checks.adminAccess,
+      adminReady: checks.staticAssets && checks.adminAccess,
+      checks: {
+        worker: true,
+        staticAssets: checks.staticAssets,
+        releaseStorage: checks.releaseStorage,
+        adminAccess: checks.adminAccess,
+        ciPublisher: checks.ciPublisher,
+      },
     });
   }
 
@@ -897,7 +945,7 @@ export default {
         return json({
           success: false,
           error: "static_assets_not_configured",
-          message: "Static Assets binding ASSETS chưa được cấu hình trong wrangler.worker.toml.",
+          message: "Static Assets binding ASSETS chưa được cấu hình trong wrangler.toml.",
         }, 503);
       }
 
