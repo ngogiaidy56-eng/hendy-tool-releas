@@ -58,6 +58,14 @@ const pagesAdminResponse = await fetchWithRetry(
 const pagesAdmin = await pagesAdminResponse.json();
 assert(pagesAdmin.error === "admin_requires_primary_origin", "Pages must deny Admin API routes and use the Worker Access-protected origin.");
 
+const pagesCiResponse = await fetchWithRetry(
+  pagesBase + "/api/v1/ci/publish",
+  { method: "POST", body: new FormData() },
+  (response) => response.status === 403
+);
+const pagesCi = await pagesCiResponse.json();
+assert(pagesCi.error === "ci_publish_requires_primary_origin", "Pages must deny CI publisher routes and leave publishing on the primary Worker.");
+
 console.log(JSON.stringify({
   success: true,
   worker: workerBase,
