@@ -19,16 +19,15 @@ const requiredWorkerSecrets = [
   "CF_ACCESS_AUD",
   "CF_ACCESS_ADMIN_EMAILS",
 ];
-const secretBlock = wrangler.match(/\[secrets\][\s\S]*?required\s*=\s*\[([^\]]*)\]/);
-assert.ok(secretBlock, "wrangler.toml must declare [secrets].required");
-const declaredSecrets = [...secretBlock[1].matchAll(/"([A-Z0-9_]+)"/g)].map((match) => match[1]);
-const compatibilitySecretBlock = compatibilityWrangler.match(/\[secrets\][\s\S]*?required\s*=\s*\[([^\]]*)\]/);
-assert.ok(compatibilitySecretBlock, "wrangler.worker.toml must declare [secrets].required");
-const compatibilityDeclaredSecrets = [...compatibilitySecretBlock[1].matchAll(/"([A-Z0-9_]+)"/g)].map((match) => match[1]);
-assert.deepEqual(compatibilityDeclaredSecrets, declaredSecrets, "Canonical and compatibility Worker configs must declare the same required secrets");
+// Worker secrets are provisioned by the dedicated GitHub Actions deployment workflow
+// and passed through --secrets-file. Do not mark them required in the Wrangler config:
+// Cloudflare Workers Builds invokes npm run deploy:worker without that file. The Worker
+// validates Access at request time and fails closed until its auth secrets are configured.
+assert.doesNotMatch(wrangler, /^\\[secrets\\]/m, "Wrangler config must allow Workers Builds to deploy without a local secrets file");
+assert.doesNotMatch(compatibilityWrangler, /^\\[secrets\\]/m, "Compatibility Worker config must not require a local secrets file");
 for (const name of requiredWorkerSecrets) {
-  assert.ok(declaredSecrets.includes(name), "wrangler.toml must require secret " + name);
-  assert.match(worker, new RegExp("\\b" + name + "\\??\\s*:"), "Worker Env type must declare " + name);
+  assert.match(worker, new RegExp("\\\\b" + name + "\\\\??\\\\s*:"), "Worker Env type must declare " + name);
+  assert.ok(access.includes(name), "Access provisioner must manage runtime secret " + name);
 }
 assert.match(wrangler, /binding\s*=\s*"ASSETS"/, "Worker assets binding must be named ASSETS");
 assert.match(wrangler, /directory\s*=\s*"\.\/\.worker-dist"/, "Worker must use prepared .worker-dist assets");
@@ -72,4 +71,4 @@ assert.match(smoke, /pagesBase\s*\+\s*"\/api\/v1\/published-releases"/, "Post-de
 assert.match(workflow, /repository_dispatch:[\s\S]*types:\s*\[deploy-cloudflare\]/, "Deployment workflow must accept the documented repository_dispatch hook");
 assert.match(workflow, /wrangler@4 deploy --dry-run --config=wrangler\.toml --secrets-file/, "Deployment must validate linked runtime secrets and assets before production upload");
 
-console.log("Deployment contract verified: Worker bindings, R2, required secrets, Pages variables, provisioning outputs, GitHub hooks and live smoke tests are linked.");
+console.log("Deployment contract verified: Worker bindings, R2, runtime secret provisioning, Pages variables, provisioning outputs, GitHub hooks and live smoke tests are linked.");
