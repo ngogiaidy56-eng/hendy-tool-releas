@@ -65,5 +65,6 @@ assert.match(gitignore, /\.runtime/, "Runtime temporary files must be ignored by
 assert.match(gitignore, /\.dev\.vars/, "Local Worker secrets must be ignored by Git");
 assert.match(smoke, /runtime\/readiness/, "Post-deploy smoke test must inspect Worker readiness");
 assert.match(smoke, /pagesBase\s*\+\s*"\/api\/v1\/published-releases"/, "Post-deploy smoke test must inspect the Pages API proxy");
+assert.match(workflow, /repository_dispatch:[\s\S]*types:\s*\[deploy-cloudflare\]/, "Deployment workflow must accept the documented repository_dispatch hook");
 
 console.log("Deployment contract verified: Worker bindings, R2, required secrets, Pages variables, provisioning outputs, GitHub hooks and live smoke tests are linked.");
