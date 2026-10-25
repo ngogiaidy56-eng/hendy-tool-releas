@@ -654,7 +654,7 @@ async function authorizeCiPublisher(request: Request, env: Env): Promise<Respons
     }, 503);
   }
   const authorization = request.headers.get("Authorization") || "";
-  const match = authorization.match(/^Bearer\\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match || !tokenMatches(match[1].trim(), expected)) {
     return json({ success: false, error: "invalid_publish_token", message: "CI publisher token không hợp lệ." }, 401);
   }
