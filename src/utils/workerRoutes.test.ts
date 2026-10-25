@@ -61,6 +61,23 @@ test("download endpoint gives an explicit configuration error if storage is miss
   assert.equal(payload.error, "release_storage_not_configured");
 });
 
+test("runtime readiness reports binding state without leaking secret values", async () => {
+  const response = await worker.fetch(request("/api/v1/runtime/readiness"), { APP_NAME: "Hendy Test" } satisfies Env);
+  assert.equal(response.status, 200);
+  const body = await response.json() as {
+    ready: boolean;
+    adminReady: boolean;
+    checks: { worker: boolean; staticAssets: boolean; releaseStorage: boolean; adminAccess: boolean; ciPublisher: boolean };
+  };
+  assert.equal(body.checks.worker, true);
+  assert.equal(body.ready, false);
+  assert.equal(body.adminReady, false);
+  assert.equal(body.checks.staticAssets, false);
+  assert.equal(body.checks.adminAccess, false);
+  assert.equal(body.checks.ciPublisher, false);
+  assert.ok(!JSON.stringify(body).includes("RELEASE_PUBLISH_TOKEN"));
+});
+
 test("unknown API routes return 404 JSON rather than the SPA page", async () => {
   const response = await worker.fetch(request("/api/not-a-route"), { ASSETS: fakeAssets } satisfies Env);
   assert.equal(response.status, 404);
@@ -203,7 +220,7 @@ test("published releases endpoint lists real R2 objects", async () => {
   assert.ok(payload.releases[0].downloadUrl.includes("/api/v1/published/downloads/"));
 });
 
-test("publish endpoint requires a configured secret before accepting uploads", async () => {
+test("publish endpoint requires a valid admin authentication path when CI secret is absent", async () => {
   const response = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
     method: "POST",
     body: new FormData(),
@@ -216,7 +233,7 @@ test("publish endpoint requires a configured secret before accepting uploads", a
   } satisfies Env);
   assert.equal(response.status, 503);
   const payload = await response.json() as { error: string };
-  assert.equal(payload.error, "publish_not_configured");
+  assert.equal(payload.error, "admin_access_not_configured");
 });
 
 test("publish endpoint requires Cloudflare Access settings even when publish secret exists", async () => {
@@ -337,6 +354,22 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
     const body = await statusResponse.text();
     assert.ok(!body.includes("must-not-leak"));
     assert.match(body, /"publishSecretConfigured": true/);
+
+    // Browser-admin auth should keep working even when the optional CI token is absent.
+    const interactiveEnv = {
+      ASSETS: fakeAssets,
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+      CF_ACCESS_AUD: audience,
+      CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
+      RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
+    } satisfies Env;
+    const interactivePublish = await worker.fetch(new Request("https://hendy-tool-releas.ngogiaidy56.workers.dev/api/v1/admin/publish", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": token },
+      body: new FormData(),
+    }), interactiveEnv);
+    assert.equal(interactivePublish.status, 400);
+    assert.equal((await interactivePublish.json() as { error: string }).error, "artifact_required");
   } finally {
     globalThis.fetch = originalFetch;
   }
