@@ -311,7 +311,7 @@ test("a valid Access JWT opens the isolated admin HTML and status API without ex
       ASSETS: fakeAssets,
       RELEASE_PUBLISH_TOKEN: "must-not-leak",
       CF_ACCESS_TEAM_DOMAIN: teamDomain,
-      CF_ACCESS_AUD: audience,
+      CF_ACCESS_AUD: "previous-app-audience," + audience,
       CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
       RELEASES_BUCKET: { async head() { return null; }, async get() { return null; }, async put() { return { size: 0 }; }, async list() { return { objects: [] }; } },
     } satisfies Env;
