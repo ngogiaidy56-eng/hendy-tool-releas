@@ -39,10 +39,16 @@ assert.match(wrangler, /run_worker_first\s*=\s*\[[^\]]*\/admin\*/, "Static Asset
 
 
 assert.ok(worker.includes("function runtimeChecks(env: Env)"), "Worker must expose runtime readiness checks");
+assert.ok(worker.includes("function runtimeMissingChecks(checks: ReturnType<typeof runtimeChecks>)"), "Worker must expose actionable missing-runtime diagnostics");
+const adminWorkspace = read("src/interface/admin/StudioWorkspace.tsx");
+assert.ok(adminWorkspace.includes("/api/v1/runtime/readiness"), "Admin workspace must load live runtime readiness");
+assert.ok(adminWorkspace.includes("Môi trường chưa sẵn sàng cho phát hành"), "Admin workspace must explain an incomplete runtime configuration");
+assert.ok(adminWorkspace.includes("Chạy workflow triển khai"), "Admin workspace must link directly to the deployment workflow");
+
 assert.ok(worker.includes('/api/v1/runtime/readiness'), "Worker must expose a non-secret runtime readiness endpoint");
 assert.ok(worker.includes("expectedAudiences.some((expected) => aud.includes(expected))"), "Worker must support multiple protected-path Access audiences");
 const adminAuthStart = worker.indexOf("async function authorizeAdmin(");
-const adminAuthEnd = worker.indexOf("\\n}", adminAuthStart);
+const adminAuthEnd = worker.indexOf("\n}", adminAuthStart);
 assert.ok(adminAuthStart >= 0 && adminAuthEnd > adminAuthStart, "Worker Admin authorizer must exist");
 const adminAuth = worker.slice(adminAuthStart, adminAuthEnd);
 assert.ok(adminAuth.includes("return verifyCloudflareAccess(request, env)"), "All interactive Admin API calls must use Cloudflare Access");
@@ -75,6 +81,6 @@ assert.doesNotMatch(pagesGateway, /HendyToolsPro-3\.1\.2-Setup\.exe|airGapped: t
 assert.ok(pagesWrangler.includes("BACKEND_ORIGIN"), "Pages config must declare the backend origin");
 assert.ok(!viteConfig.includes("__dirname"), "Vite config must work with ESM-native loading");
 assert.ok(bootstrapWrangler.includes('directory = "./.worker-dist"'), "Bootstrap Worker must use prepared assets");
-assert.ok(wrangler.includes('required = ["CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_ADMIN_EMAILS"]'), "Production Worker config must declare required Access secrets");
+assert.ok(wrangler.includes('required = ["RELEASE_PUBLISH_TOKEN", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_ADMIN_EMAILS"]'), "Production Worker config must declare every required runtime secret");
 
 console.log("Verified: separate Storefront/Admin builds, runtime provisioning, required Access secrets, and Workers & Pages deployment hooks.");
