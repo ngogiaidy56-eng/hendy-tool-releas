@@ -51,6 +51,9 @@ assert.ok(deployWorkflow.includes("wrangler.bootstrap.toml"), "CI must bootstrap
 assert.ok(deployWorkflow.includes("--secrets-file"), "CI must upload the runtime secret bundle during final Worker deploy");
 assert.ok(deployWorkflow.includes("smoke-test-cloudflare.mjs"), "CI must smoke-test Worker and Pages after deploy");
 assert.ok(pagesGateway.includes("admin_requires_primary_origin"), "Pages must not expose the separate Admin API");
+assert.ok(pagesGateway.includes("ci_publish_requires_primary_origin"), "Pages must not proxy CI publisher uploads");
+assert.ok(worker.includes('path === "/api/v1/ci/publish"'), "Worker must expose an isolated CI publish endpoint");
+assert.ok(worker.includes("authorizeCiPublisher(request, env)"), "CI publish endpoint must require its own server-side token check");
 assert.doesNotMatch(pagesGateway, /HendyToolsPro-3\.1\.2-Setup\.exe|airGapped: true|cpuUsage: 26/, "Pages gateway must not return hard-coded fake platform data");
 assert.ok(pagesWrangler.includes("BACKEND_ORIGIN"), "Pages config must declare the backend origin");
 assert.ok(!viteConfig.includes("__dirname"), "Vite config must work with ESM-native loading");
