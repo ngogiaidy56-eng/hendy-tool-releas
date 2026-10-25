@@ -128,10 +128,13 @@ async function ensureAdminApplications(teamDomain, identityProviderId) {
     );
     let app;
     if (current?.id) {
-      app = await api("/accounts/" + accountId + "/access/apps/" + current.id, {
+      const updated = await api("/accounts/" + accountId + "/access/apps/" + current.id, {
         method: "PUT",
-        body: { ...appBody, aud: current.aud },
+        body: appBody,
       });
+      // The audience tag is assigned by Cloudflare. Do not submit it as an update field;
+      // some API responses omit it, so preserve the already-linked tag if necessary.
+      app = { ...updated, aud: updated?.aud || current.aud };
       console.log("Updated Access application for protected Admin route.");
     } else {
       app = await api("/accounts/" + accountId + "/access/apps", {
@@ -139,6 +142,12 @@ async function ensureAdminApplications(teamDomain, identityProviderId) {
         body: appBody,
       });
       console.log("Created Access application for protected Admin route.");
+    }
+    if (!app?.aud || typeof app.aud !== "string") {
+      if (app?.id) {
+        const refreshed = await api("/accounts/" + accountId + "/access/apps/" + app.id);
+        app = { ...refreshed, aud: refreshed?.aud || app.aud };
+      }
     }
     if (!app?.aud || typeof app.aud !== "string") {
       throw new Error("Access application " + entry.name + " did not return an audience tag; cannot safely link Worker authentication.");
