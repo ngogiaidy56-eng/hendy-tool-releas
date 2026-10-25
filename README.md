@@ -78,7 +78,7 @@ Useful links:
 - `scripts/provision-cloudflare-resources.mjs`: idempotently creates R2/Pages resources and links runtime variables without overwriting unrelated existing settings.
 - `scripts/provision-cloudflare-access.mjs`: creates/reuses the Zero Trust organization, email OTP provider, path-specific Access applications and a temporary Worker secrets file. Values are never committed or printed.
 - `scripts/smoke-test-cloudflare.mjs`: verifies live Worker readiness, R2 binding, Admin setup status and Pages proxy behavior after deploy.
-- `wrangler.bootstrap.toml`: temporary first-deploy configuration without required-secret assertions. Normal production deployments use `wrangler.toml`, which declares required Access secrets.
+- `wrangler.bootstrap.toml`: minimal first-deploy configuration without local secret-file requirements. The canonical `wrangler.toml` also permits direct Workers Builds uploads; the managed GitHub Actions deployment supplies the provisioned runtime secrets with `--secrets-file`.
 
 ## Local validation / manual deployment
 
