@@ -33,7 +33,10 @@ assert(readiness.success === true, "Worker readiness endpoint returned an error.
 assert(readiness.checks?.staticAssets === true, "Worker static Assets binding is missing.");
 assert(readiness.checks?.releaseStorage === true, "R2 release storage is not fully bound.");
 assert(readiness.checks?.adminAccess === true, "Cloudflare Access runtime variables were not linked.");
-assert(readiness.adminReady === true, "Admin readiness is false; inspect the runtime readiness payload.");
+assert(readiness.checks?.ciPublisher === true, "RELEASE_PUBLISH_TOKEN is missing from the Worker runtime.");
+assert(readiness.adminReady === true, "Admin workspace is not ready. Missing runtime items: " + (readiness.missing || []).join(", "));
+assert(readiness.ready === true, "Worker is not fully ready. Missing runtime items: " + (readiness.missing || []).join(", "));
+assert(Array.isArray(readiness.missing) && readiness.missing.length === 0, "Runtime provisioner did not link all required bindings and secrets.");
 
 const workerReleasesResponse = await fetchWithRetry(workerBase + "/api/v1/published-releases");
 const workerReleases = await workerReleasesResponse.json();
@@ -42,9 +45,10 @@ assert(workerReleases.success === true && Array.isArray(workerReleases.releases)
 const adminResponse = await fetchWithRetry(
   workerBase + "/admin",
   { headers: { Accept: "text/html" } },
-  (response) => [200, 302, 303, 307, 308, 401, 403].includes(response.status)
+  (response) => [302, 303, 307, 308, 401, 403].includes(response.status)
 );
-assert(adminResponse.status !== 503, "Admin route still reports missing Access configuration.");
+assert([302, 303, 307, 308, 401, 403].includes(adminResponse.status),
+  "Admin route must redirect to Access login or reject an unauthenticated smoke-test request.");
 
 const pagesReleasesResponse = await fetchWithRetry(pagesBase + "/api/v1/published-releases");
 const pagesReleases = await pagesReleasesResponse.json();
