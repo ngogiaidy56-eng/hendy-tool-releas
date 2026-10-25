@@ -80,8 +80,8 @@ assert.match(smoke, /adminPagesBase/, "Smoke test must inspect the Web Admin Pag
 assert.match(smoke, /opsPagesBase/, "Smoke test must inspect the Operations Pages Access gate");
 assert.match(workflow, /repository_dispatch:[\s\S]*types:\s*\[deploy-cloudflare\]/, "Deployment workflow must accept the documented repository_dispatch hook");
 assert.match(workflow, /wrangler@4 deploy --dry-run --config=wrangler\.toml --secrets-file/, "Deployment must validate linked runtime secrets and assets before production upload");
-assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.web-user\.config\.ts/, "Separate web-user Pages build must exist");
-assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.web-admin\.config\.ts/, "Separate web-admin Pages build must exist");
-assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.operations\.config\.ts/, "Separate operations Pages build must exist");
+assert.match(packageJson.scripts["build:pages:user"], /vite build --config vite\.web-user\.config\.ts/, "Separate web-user Pages build must exist");
+assert.match(packageJson.scripts["build:pages:admin"], /vite build --config vite\.web-admin\.config\.ts/, "Separate web-admin Pages build must exist");
+assert.match(packageJson.scripts["build:pages:operations"], /vite build --config vite\.operations\.config\.ts/, "Separate operations Pages build must exist");
 
 console.log("Deployment contract verified: Worker bindings, R2, runtime secret provisioning, Pages variables, provisioning outputs, GitHub hooks and live smoke tests are linked.");
