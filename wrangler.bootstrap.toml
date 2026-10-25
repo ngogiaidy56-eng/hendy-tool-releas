@@ -1,5 +1,5 @@
 # Bootstrap-only configuration for the first Worker deployment.
-# Do not use this for normal releases; wrangler.toml validates the required Access secrets.
+# Normal managed releases should use wrangler.toml together with the provisioned --secrets-file.
 name = "hendy-tool-releas"
 main = "./src/worker.ts"
 compatibility_date = "2026-10-23"
