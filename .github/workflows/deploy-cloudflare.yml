@@ -45,14 +45,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
 
       - name: Validate deployment credentials
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "::error::Add CLOUDFLARE_API_TOKEN as a GitHub Actions secret. Use a scoped API token with Workers Scripts Edit, R2 Storage Edit, Pages Edit, and Zero Trust Access Applications/Policies and Organization permissions."
+            echo "::error::Add CLOUDFLARE_API_TOKEN as a GitHub Actions secret. Use a scoped API token with Workers Scripts Edit, R2 Storage Edit, Pages Edit, and Zero Trust Access Applications/Policies, Identity Providers/Groups, and Organization permissions."
             exit 1
           fi
           if ! [[ "${CLOUDFLARE_ACCOUNT_ID:-}" =~ ^[a-fA-F0-9]{32}$ ]]; then
@@ -66,7 +65,7 @@ jobs:
           echo "Deployment credentials are present; secret values are not printed."
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
 
       - name: Typecheck and test Worker, auth, Pages gateway
         run: |
