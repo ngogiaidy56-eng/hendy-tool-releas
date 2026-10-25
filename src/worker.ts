@@ -566,13 +566,13 @@ function adminAccessPage(status: number): Response {
   const needsSetup = status === 503;
   const identityDenied = status === 403;
   const title = needsSetup
-    ? "Cần hoàn tất cấu hình bảo mật"
-    : identityDenied ? "Tài khoản chưa được cấp quyền quản trị" : "Đăng nhập quản trị để tiếp tục";
+    ? "Không gian quản trị chưa sẵn sàng"
+    : identityDenied ? "Tài khoản chưa được cấp quyền" : "Vui lòng đăng nhập để tiếp tục";
   const message = needsSetup
-    ? "Worker chưa được cấu hình đầy đủ Cloudflare Access. Quản trị viên cần thiết lập Team Domain, AUD và danh sách email quản trị được phép."
+    ? "Không gian quản trị hiện chưa thể mở. Vui lòng thử lại sau hoặc liên hệ người vận hành hệ thống."
     : identityDenied
-      ? "Danh tính đã được xác minh nhưng email chưa nằm trong danh sách CF_ACCESS_ADMIN_EMAILS được chủ hệ thống cho phép."
-      : "Yêu cầu này chưa có danh tính Cloudflare Access hợp lệ. Hãy truy cập qua ứng dụng Access đã được cấp quyền cho tài khoản quản trị.";
+      ? "Tài khoản hiện tại chưa được cấp quyền truy cập không gian quản trị."
+      : "Bạn cần đăng nhập bằng tài khoản được cấp quyền để tiếp tục.";
   const html = `<!doctype html>
 <html lang="vi">
 <head>
@@ -591,8 +591,6 @@ main{width:min(100%,620px);border:1px solid #ffffff18;border-radius:28px;backgro
 .dot{width:7px;height:7px;border-radius:50%;background:#fbbf24}
 h1{margin:18px 0 12px;font-size:clamp(29px,5vw,42px);line-height:1.1;letter-spacing:-.045em}
 p{margin:0;color:#a1a1aa;font-size:14px;line-height:1.85}
-.panel{margin-top:24px;padding:16px;border:1px solid #ffffff12;border-radius:16px;background:#0003}
-.panel strong{display:block;font-size:12px;color:#e4e4e7}.panel code{display:block;margin-top:9px;color:#c4b5fd;font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
 nav{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
 a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:12px;padding:0 16px;text-decoration:none;font-size:12px;font-weight:800}
 .primary{background:#6366f1;color:#fff}.secondary{border:1px solid #ffffff1c;color:#cbd5e1}
@@ -603,8 +601,7 @@ small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8
 <div class="brand"><span class="mark">H</span><span>Hendy Admin Console<br><span style="color:#71717a;font-weight:600;letter-spacing:.08em">SECURE DEVELOPER WORKSPACE</span></span></div>
 <div class="pill"><span class="dot"></span>${needsSetup ? "Access setup required" : identityDenied ? "Admin allow-list denied" : "Authentication required"}</div>
 <h1>${title}</h1><p>${message}</p>
-<div class="panel"><strong>Đường dẫn quản trị được bảo vệ</strong><code>/admin · /studio · /api/v1/admin/*</code><code>${needsSetup ? "CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD + CF_ACCESS_ADMIN_EMAILS" : identityDenied ? "Email is not in CF_ACCESS_ADMIN_EMAILS" : "Cf-Access-Jwt-Assertion"}</code></div>
-<nav><a class="primary" href="/">Quay về cửa hàng</a><a class="secondary" href="https://dash.cloudflare.com/" rel="noreferrer">Mở Cloudflare Dashboard ↗</a></nav>
+<nav><a class="primary" href="/">Quay về cửa hàng</a></nav>
 <small>Trang quản trị không được cung cấp từ giao diện cửa hàng công khai. Không gửi secret hoặc token vào mã nguồn, trình duyệt hay tin nhắn.</small>
 </main></body></html>`;
   const headers = securityHeaders({ "Content-Type": "text/html; charset=utf-8" });
