@@ -108,8 +108,9 @@ jobs:
 
       - name: Compile Pages Functions into the Direct Upload Worker bundle
         run: |
-          npx --yes wrangler@4 pages functions build functions --outfile=dist/_worker.js
+          npx --yes wrangler@4 pages functions build functions --outfile=dist/_worker.js --output-routes-path=dist/_routes.json
           test -s dist/_worker.js
+          test -s dist/_routes.json
 
       - name: Deploy Pages storefront and API proxy
         run: npx --yes wrangler@4 pages deploy dist --config=wrangler.pages.toml --project-name=hendy-tool-releas --branch=main --no-bundle
