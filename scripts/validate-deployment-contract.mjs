@@ -26,7 +26,7 @@ const requiredWorkerSecrets = [
 assert.doesNotMatch(wrangler, /^\\[secrets\\]/m, "Wrangler config must allow Workers Builds to deploy without a local secrets file");
 assert.doesNotMatch(compatibilityWrangler, /^\\[secrets\\]/m, "Compatibility Worker config must not require a local secrets file");
 for (const name of requiredWorkerSecrets) {
-  assert.match(worker, new RegExp("\\\\b" + name + "\\\\??\\\\s*:"), "Worker Env type must declare " + name);
+  assert.match(worker, new RegExp("\\b" + name + "\\??\\s*:"), "Worker Env type must declare " + name);
   assert.ok(access.includes(name), "Access provisioner must manage runtime secret " + name);
 }
 assert.match(wrangler, /binding\s*=\s*"ASSETS"/, "Worker assets binding must be named ASSETS");
