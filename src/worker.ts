@@ -519,8 +519,8 @@ function isCloudflareAccessConfigured(env: Env): boolean {
 function runtimeChecks(env: Env) {
   return {
     staticAssets: Boolean(env.ASSETS?.fetch),
-    releaseStorage: Boolean(env.RELEASES_BUCKET?.head && env.RELEASES_BUCKET?.get &&
-      env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
+    releaseStorage: Boolean(env.RELEASES_BUCKET &&
+      env.RELEASES_BUCKET.put && env.RELEASES_BUCKET.list),
     adminAccess: isCloudflareAccessConfigured(env),
     ciPublisher: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
   };
@@ -693,8 +693,8 @@ async function adminStatusResponse(request: Request, env: Env): Promise<Response
   if (denied) return denied;
   return json({
     success: true,
-    storageConfigured: Boolean(env.RELEASES_BUCKET?.head && env.RELEASES_BUCKET?.get &&
-      env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
+    storageConfigured: Boolean(env.RELEASES_BUCKET &&
+      env.RELEASES_BUCKET.put && env.RELEASES_BUCKET.list),
     publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
     accessConfigured: isCloudflareAccessConfigured(env),
     adminAllowlistConfigured: Boolean((env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
