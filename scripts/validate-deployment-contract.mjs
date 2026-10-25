@@ -34,6 +34,10 @@ assert.match(wrangler, /binding\s*=\s*"ASSETS"/, "Worker assets binding must be 
 assert.match(wrangler, /directory\s*=\s*"\.\/\.worker-dist"/, "Worker must use prepared .worker-dist assets");
 assert.match(wrangler, /binding\s*=\s*"RELEASES_BUCKET"/, "Worker must have the release R2 binding");
 assert.match(wrangler, /bucket_name\s*=\s*"hendy-tool-releases"/, "R2 bucket name must match the provisioner");
+assert.match(worker, /adminReady:\s*checks\.staticAssets && checks\.releaseStorage && checks\.adminAccess/, "Admin readiness must require assets, R2 and Access");
+assert.match(worker, /ready:\s*checks\.staticAssets && checks\.releaseStorage && checks\.adminAccess && checks\.ciPublisher/, "Full runtime readiness must require the CI publisher secret");
+assert.match(worker, /missing:\s*runtimeMissingChecks\(checks\)/, "Runtime readiness must report actionable missing config names");
+
 assert.match(bootstrap, /binding\s*=\s*"RELEASES_BUCKET"/, "Bootstrap Worker must bind the same R2 bucket");
 assert.doesNotMatch(bootstrap, /\[secrets\]/, "Bootstrap config must remain usable before runtime secrets exist");
 
