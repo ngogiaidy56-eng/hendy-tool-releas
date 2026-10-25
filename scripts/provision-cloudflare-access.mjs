@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 const accountId = (process.env.CLOUDFLARE_ACCOUNT_ID || "").trim();
 const apiToken = (process.env.CLOUDFLARE_API_TOKEN || "").trim();
@@ -12,7 +13,7 @@ const workerName = process.env.CLOUDFLARE_WORKER_NAME || "hendy-tool-releas";
 const workerHost = process.env.WORKER_HOST || "hendy-tool-releas.ngogiaidy56.workers.dev";
 const outputArg = process.argv.find((item) => item.startsWith("--output="))?.slice("--output=".length);
 const outputIndex = process.argv.indexOf("--output");
-const outputPath = resolve(outputArg || (outputIndex >= 0 ? process.argv[outputIndex + 1] : "") || ".runtime/worker-secrets.json");
+const outputPath = resolve(outputArg || (outputIndex >= 0 ? process.argv[outputIndex + 1] : "") || resolve(tmpdir(), "hendy-tool-releas-worker-secrets.json"));
 
 if (!/^[a-f0-9]{32}$/i.test(accountId)) {
   throw new Error("CLOUDFLARE_ACCOUNT_ID must be a 32-character Cloudflare account ID.");
