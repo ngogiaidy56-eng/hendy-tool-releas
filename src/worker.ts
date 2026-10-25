@@ -327,8 +327,10 @@ async function publishedReleasesResponse(request: Request, env: Env): Promise<Re
   return json({ success: true, total: releases.length, releases, truncated: Boolean(result.truncated) });
 }
 
-async function publishArtifact(request: Request, env: Env): Promise<Response> {
-  const denied = await authorizeAdmin(request, env);
+async function publishArtifact(request: Request, env: Env, authMode: "admin" | "ci" = "admin"): Promise<Response> {
+  const denied = authMode === "ci"
+    ? await authorizeCiPublisher(request, env)
+    : await authorizeAdmin(request, env);
   if (denied) return denied;
   if (!env.RELEASES_BUCKET || !env.RELEASES_BUCKET.put) {
     return json({
@@ -642,6 +644,23 @@ small{display:block;margin-top:25px;color:#71717a;font-size:10px;line-height:1.8
   return new Response(html, { status, headers });
 }
 
+async function authorizeCiPublisher(request: Request, env: Env): Promise<Response | null> {
+  const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
+  if (!expected) {
+    return json({
+      success: false,
+      error: "publish_not_configured",
+      message: "CI publisher secret chưa được liên kết trên Worker.",
+    }, 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer\\s+(.+)$/i);
+  if (!match || !tokenMatches(match[1].trim(), expected)) {
+    return json({ success: false, error: "invalid_publish_token", message: "CI publisher token không hợp lệ." }, 401);
+  }
+  return null;
+}
+
 async function authorizeAdmin(request: Request, env: Env): Promise<Response | null> {
   const expected = env.RELEASE_PUBLISH_TOKEN?.trim();
   const authorization = request.headers.get("Authorization") || "";
@@ -850,6 +869,14 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
   if (path === "/api/v1/admin/publish") {
     if (method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
     return publishArtifact(request, env);
+  }
+
+  // CI publishing is intentionally outside the path-scoped Access application so
+  // GitHub Actions can authenticate with its server-only bearer secret. The Worker
+  // validates that secret itself before reading any multipart upload.
+  if (path === "/api/v1/ci/publish") {
+    if (method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405);
+    return publishArtifact(request, env, "ci");
   }
 
   if (path.startsWith("/api/v1/published/downloads/")) {
