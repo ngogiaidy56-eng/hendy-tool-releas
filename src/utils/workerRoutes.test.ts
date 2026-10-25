@@ -61,21 +61,53 @@ test("download endpoint gives an explicit configuration error if storage is miss
   assert.equal(payload.error, "release_storage_not_configured");
 });
 
-test("runtime readiness reports binding state without leaking secret values", async () => {
+test("runtime readiness reports missing bindings without leaking secret values", async () => {
   const response = await worker.fetch(request("/api/v1/runtime/readiness"), { APP_NAME: "Hendy Test" } satisfies Env);
   assert.equal(response.status, 200);
   const body = await response.json() as {
     ready: boolean;
     adminReady: boolean;
+    missing: string[];
     checks: { worker: boolean; staticAssets: boolean; releaseStorage: boolean; adminAccess: boolean; ciPublisher: boolean };
   };
   assert.equal(body.checks.worker, true);
   assert.equal(body.ready, false);
   assert.equal(body.adminReady, false);
   assert.equal(body.checks.staticAssets, false);
+  assert.equal(body.checks.releaseStorage, false);
   assert.equal(body.checks.adminAccess, false);
   assert.equal(body.checks.ciPublisher, false);
+  assert.deepEqual(body.missing, ["ASSETS", "RELEASES_BUCKET", "Cloudflare Access runtime secrets", "RELEASE_PUBLISH_TOKEN"]);
   assert.ok(!JSON.stringify(body).includes("RELEASE_PUBLISH_TOKEN"));
+});
+
+test("runtime readiness becomes ready only when the UI, R2, Access and CI publisher are linked", async () => {
+  const response = await worker.fetch(request("/api/v1/runtime/readiness"), {
+    APP_NAME: "Hendy Test",
+    ASSETS: fakeAssets,
+    RELEASE_PUBLISH_TOKEN: "do-not-return-this-value",
+    CF_ACCESS_TEAM_DOMAIN: "https://hendyteam.cloudflareaccess.com",
+    CF_ACCESS_AUD: "test-access-audience",
+    CF_ACCESS_ADMIN_EMAILS: "admin@example.com",
+    RELEASES_BUCKET: {
+      async head() { return null; },
+      async get() { return null; },
+      async put() { return { size: 0 }; },
+      async list() { return { objects: [], truncated: false }; },
+    },
+  } satisfies Env);
+  assert.equal(response.status, 200);
+  const body = await response.json() as {
+    ready: boolean;
+    adminReady: boolean;
+    missing: string[];
+    checks: { staticAssets: boolean; releaseStorage: boolean; adminAccess: boolean; ciPublisher: boolean };
+  };
+  assert.equal(body.ready, true);
+  assert.equal(body.adminReady, true);
+  assert.deepEqual(body.missing, []);
+  assert.deepEqual(body.checks, { worker: true, staticAssets: true, releaseStorage: true, adminAccess: true, ciPublisher: true });
+  assert.ok(!JSON.stringify(body).includes("do-not-return-this-value"));
 });
 
 test("unknown API routes return 404 JSON rather than the SPA page", async () => {
