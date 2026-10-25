@@ -67,7 +67,7 @@ async function ensurePagesProject() {
         build_config: {
           build_command: "npm run build",
           destination_dir: "dist",
-          root_dir: "/",
+          root_dir: ".",
         },
         deployment_configs: {
           production: { env_vars: desiredVars },
