@@ -25,6 +25,13 @@ type PublishedRelease = {
   downloadUrl: string;
 };
 type BuiltBundle = { file: File; sha256: string; manifest: Record<string, unknown> };
+type RuntimeReadiness = {
+  ready: boolean;
+  adminReady: boolean;
+  missing: string[];
+  checkedAt?: string;
+  checks: { staticAssets: boolean; releaseStorage: boolean; adminAccess: boolean; ciPublisher: boolean };
+};
 
 const MAX_SOURCE_BYTES = 50 * 1024 * 1024;
 const PLATFORM_OPTIONS: { value: Platform; label: string; detail: string; icon: React.ElementType }[] = [
@@ -79,6 +86,9 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
   const [progressMessage, setProgressMessage] = useState('');
   const [notice, setNotice] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [search, setSearch] = useState('');
+  const [runtimeReadiness, setRuntimeReadiness] = useState<RuntimeReadiness | null>(null);
+  const [runtimeReadinessLoading, setRuntimeReadinessLoading] = useState(false);
+  const [runtimeReadinessError, setRuntimeReadinessError] = useState('');
 
   const sourceBytes = sourceEntries.reduce((sum, item) => sum + item.size, 0);
   const latestReleases = useMemo(() => releases.filter((item) =>
@@ -96,6 +106,38 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
       setNotice({ type: 'error', text: error instanceof Error ? error.message : 'Không thể tải kho phát hành.' });
     } finally {
       setLoadingReleases(false);
+    }
+  };
+
+  const loadRuntimeReadiness = async () => {
+    setRuntimeReadinessLoading(true);
+    setRuntimeReadinessError('');
+    try {
+      const response = await fetch('/api/v1/runtime/readiness', {
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success !== true) {
+        throw new Error('Worker runtime readiness API trả về HTTP ' + response.status);
+      }
+      setRuntimeReadiness({
+        ready: Boolean(body.ready),
+        adminReady: Boolean(body.adminReady),
+        missing: Array.isArray(body.missing) ? body.missing.filter((item: unknown): item is string => typeof item === 'string') : [],
+        checkedAt: typeof body.checkedAt === 'string' ? body.checkedAt : undefined,
+        checks: {
+          staticAssets: Boolean(body.checks?.staticAssets),
+          releaseStorage: Boolean(body.checks?.releaseStorage),
+          adminAccess: Boolean(body.checks?.adminAccess),
+          ciPublisher: Boolean(body.checks?.ciPublisher),
+        },
+      });
+    } catch {
+      setRuntimeReadinessError('Không thể đọc trạng thái runtime. Kiểm tra API Worker và workflow triển khai.');
+    } finally {
+      setRuntimeReadinessLoading(false);
     }
   };
 
@@ -137,6 +179,7 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
   useEffect(() => {
     void loadReleases();
     void loadStoreConfig();
+    void loadRuntimeReadiness();
   }, []);
 
   const appendFiles = async (inputFiles: FileList | File[]) => {
@@ -370,6 +413,35 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
 
             {view === 'overview' && (
               <section className="space-y-7">
+                {(runtimeReadinessError || (runtimeReadiness && !runtimeReadiness.ready)) && (
+                  <div role="status" className="rounded-2xl border border-amber-400/20 bg-amber-300/[.045] p-5 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-300/10 text-amber-200"><CircleAlert size={19}/></div>
+                        <div className="min-w-0">
+                          <h2 className="font-extrabold text-amber-100">{runtimeReadinessError ? 'Không đọc được trạng thái môi trường' : 'Môi trường chưa sẵn sàng cho phát hành'}</h2>
+                          <p className="mt-1 text-sm leading-6 text-slate-400">{runtimeReadinessError || 'Một số binding hoặc bí mật runtime còn thiếu. Workflow triển khai có trách nhiệm tạo/liên kết các giá trị này; màn hình không hiển thị giá trị secret.'}</p>
+                          {runtimeReadiness?.missing?.length ? (
+                            <ul className="mt-3 space-y-1.5 text-xs text-slate-300">
+                              {runtimeReadiness.missing.map((item) => (
+                                <li key={item} className="flex items-start gap-2"><span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300"/><span>{({
+                                  ASSETS: 'Tệp giao diện chưa được liên kết với Worker.',
+                                  RELEASES_BUCKET: 'Kho R2 chưa được liên kết đầy đủ.',
+                                  'Cloudflare Access runtime secrets': 'Cấu hình đăng nhập và quyền Admin chưa được liên kết.',
+                                  RELEASE_PUBLISH_TOKEN: 'Bí mật phát hành CI chưa được liên kết với Worker.',
+                                } as Record<string, string>)[item] || 'Thiếu cấu hình runtime: ' + item}</span></li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col">
+                        <button onClick={() => void loadRuntimeReadiness()} disabled={runtimeReadinessLoading} className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/[.12] px-3 py-2.5 text-xs font-bold text-slate-200 hover:bg-white/[.05] disabled:opacity-50"><Activity size={14}/>{runtimeReadinessLoading ? 'Đang kiểm tra…' : 'Kiểm tra lại'}</button>
+                        <a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas/actions/workflows/deploy-cloudflare.yml" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-500 px-3 py-2.5 text-xs font-bold text-white hover:bg-violet-400"><GitBranch size={14}/> Chạy workflow triển khai</a>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="relative overflow-hidden rounded-[1.6rem] border border-violet-400/15 bg-gradient-to-br from-[#201a37] via-[#17192a] to-[#10121c] p-6 sm:p-9">
                   <div className="absolute -right-10 -top-20 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl"/>
                   <div className="relative flex flex-col justify-between gap-7 xl:flex-row xl:items-end">
