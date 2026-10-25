@@ -47,36 +47,55 @@ async function ensureR2Bucket() {
 
 async function ensurePagesProject() {
   const result = await cloudflareApi("/accounts/" + accountId + "/pages/projects?per_page=1000");
-  const projects = Array.isArray(result) ? result : [];
-  if (projects.some((project) => project.name === "hendy-tool-releas")) {
-    console.log("Runtime resource ready: Pages project hendy-tool-releas already exists.");
+  const projects = Array.isArray(result) ? result : (result?.projects || []);
+  const projectName = "hendy-tool-releas";
+  const desiredVars = {
+    BACKEND_ORIGIN: {
+      type: "plain_text",
+      value: "https://hendy-tool-releas.ngogiaidy56.workers.dev",
+    },
+    ENVIRONMENT: { type: "plain_text", value: "production" },
+    APP_NAME: { type: "plain_text", value: "Hendy Store — App Store & Software Releases" },
+  };
+  const existing = projects.find((project) => project.name === projectName);
+  if (!existing) {
+    await cloudflareApi("/accounts/" + accountId + "/pages/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: projectName,
+        production_branch: "main",
+        build_config: {
+          build_command: "npm run build",
+          destination_dir: "dist",
+          root_dir: "/",
+        },
+        deployment_configs: {
+          production: { env_vars: desiredVars },
+          preview: { env_vars: desiredVars },
+        },
+      }),
+    });
+    console.log("Runtime resource created: Pages project and environment variables.");
     return;
   }
-  await cloudflareApi("/accounts/" + accountId + "/pages/projects", {
-    method: "POST",
+
+  // Merge rather than replace existing runtime variables so app-owned settings are preserved.
+  const production = existing.deployment_configs?.production || {};
+  const preview = existing.deployment_configs?.preview || {};
+  const mergeVars = (oldVars) => ({ ...(oldVars || {}), ...desiredVars });
+  await cloudflareApi("/accounts/" + accountId + "/pages/projects/" + projectName, {
+    method: "PUT",
     body: JSON.stringify({
-      name: "hendy-tool-releas",
-      production_branch: "main",
-      build_config: {
-        build_command: "npm run build",
-        destination_dir: "dist",
-        root_dir: "/",
-      },
+      name: projectName,
+      production_branch: existing.production_branch || "main",
+      ...(existing.build_config ? { build_config: existing.build_config } : {}),
       deployment_configs: {
-        production: {
-          env_vars: {
-            BACKEND_ORIGIN: {
-              type: "plain_text",
-              value: "https://hendy-tool-releas.ngogiaidy56.workers.dev",
-            },
-            ENVIRONMENT: { type: "plain_text", value: "production" },
-            APP_NAME: { type: "plain_text", value: "Hendy Store — App Store & Software Releases" },
-          },
-        },
+        production: { ...production, env_vars: mergeVars(production.env_vars) },
+        preview: { ...preview, env_vars: mergeVars(preview.env_vars) },
       },
     }),
   });
-  console.log("Runtime resource created: Pages project hendy-tool-releas.");
+  console.log("Runtime resource ready: Pages project variables linked for production and preview.");
 }
 
 await ensureR2Bucket();
