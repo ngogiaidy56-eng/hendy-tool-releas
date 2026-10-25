@@ -66,3 +66,24 @@ test("Pages gateway returns a real 502 when its backend is unavailable", async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Pages gateway denies the CI publisher endpoint at the public origin", async () => {
+  const originalFetch = globalThis.fetch;
+  let upstreamCalled = false;
+  globalThis.fetch = (async () => {
+    upstreamCalled = true;
+    return new Response("unexpected upstream call");
+  }) as typeof fetch;
+  try {
+    const response = await onRequest({
+      request: new Request("https://hendy-tool-releas.pages.dev/api/v1/ci/publish", { method: "POST", body: new FormData() }),
+      env: { BACKEND_ORIGIN: "https://hendy-tool-releas.ngogiaidy56.workers.dev" },
+      params: { path: ["v1", "ci", "publish"] },
+    });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json() as { error: string }).error, "ci_publish_requires_primary_origin");
+    assert.equal(upstreamCalled, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
