@@ -20,7 +20,9 @@ Useful checks after successful deployment:
 
 ## GitHub Actions deployment to Cloudflare Workers & Pages
 
-The GitHub Actions workflow `.github/workflows/deploy-cloudflare.yml` is the production deployment path. It validates the source, builds both independent HTML applications, creates missing Cloudflare resources, provisions Access login, pushes runtime secrets to the Worker, deploys the storefront-only Pages build, and runs live smoke tests.
+The GitHub Actions workflow `.github/workflows/deploy-cloudflare.yml` is the production deployment path. It validates the source and deployment contract, builds both independent HTML applications, creates missing Cloudflare resources, provisions Access login, pushes runtime secrets to the Worker, deploys the storefront-only Pages build, and runs live smoke tests.
+
+The deployment contract is checked by `npm run check:deployment`. It compares the secret names declared in `wrangler.toml`, Worker `Env` bindings, Pages `BACKEND_ORIGIN`, R2 bucket binding, provisioning scripts, deployment hooks, and post-deploy smoke checks. The check runs in the CI, Admin verification, release packaging and Cloudflare deployment workflows to catch drift before production deployment.
 
 ### One-time GitHub configuration
 
@@ -35,6 +37,8 @@ In **GitHub → Settings → Secrets and variables → Actions**, add:
 
 The Cloudflare API token needs access to **Workers Scripts**, **R2 Storage**, **Pages**, **Access Applications/Policies**, and **Access Organizations/Identity Providers/Groups**. Use least-privilege permissions appropriate for creating/updating these resources. Do not paste API tokens into chat, commit them to Git, or expose them as Vite `VITE_*` variables.
 
+The Cloudflare API token, account ID and allowed Admin email(s) are external account credentials/identity choices and must be supplied once by the repository owner. After those inputs exist, GitHub Actions creates/reuses the R2 and Pages resources, creates/reuses the Access organization and applications, generates `RELEASE_PUBLISH_TOKEN` if it is not supplied, writes the runtime secret bundle to a runner-temporary file, and uploads it through Wrangler. Runtime secrets and local `.dev.vars*` files are not committed to the repository.
+
 ### What deployment provisions
 
 On each matching push to `main` (or manual **Run workflow**), the deployment workflow:
@@ -46,7 +50,7 @@ On each matching push to `main` (or manual **Run workflow**), the deployment wor
 5. Removes `dist/admin.html` before Pages upload, compiles `functions/api/[[path]].ts` into `dist/_worker.js` plus `dist/_routes.json`, then deploys the storefront and public API proxy. Pages Admin and CI publisher paths are explicitly denied.
 6. Runs post-deploy smoke tests against Worker health/readiness, the real R2-backed catalog, the Pages proxy, and the expected 403 responses for Admin/CI endpoints on Pages. The workflow fails if runtime bindings are missing or the Admin route remains in setup-error state.
 
-Non-secret runtime variables such as `ENVIRONMENT`, `APP_NAME`, `PUBLIC_BASE_URL` and Pages `BACKEND_ORIGIN` are declared in Wrangler/Pages configuration and reconciled by the provisioning script. Required Worker secret names are declared in `wrangler.toml`. The Access issuer, application audience tags and allow-list are linked into the Worker at deploy time. The CI publisher token is separate from interactive Admin login; the Admin API can authenticate through Access even when no repository publisher token exists.
+Non-secret runtime variables such as `ENVIRONMENT`, `APP_NAME`, `PUBLIC_BASE_URL` and Pages `BACKEND_ORIGIN` are declared in Wrangler/Pages configuration and reconciled by the provisioning script. Required Worker secret names are declared in `wrangler.toml` and are validated by Wrangler at deploy time. The Access issuer, application audience tags and allow-list are linked into the Worker at deploy time. The Worker readiness endpoint (`/api/v1/runtime/readiness`) returns safe boolean checks and a list of missing binding names, never secret values; the Admin overview displays actionable diagnostics when runtime provisioning is incomplete. The CI publisher token is separate from interactive Admin login.
 
 **Use a single deployment controller.** If this Worker is already connected to Cloudflare **Workers Builds → Git integration**, disable its automatic production deploy after enabling the GitHub Actions workflow. Running both pipelines against the same Worker can cause deploy races and mismatched runtime secrets. The GitHub Actions workflow is now intended to own production deploys.
 
@@ -80,6 +84,7 @@ Requires Node.js 22+. The `public/_redirects` rule is retained in `dist/` for Pa
 
 ```bash
 npm install
+npm run check:deployment
 npm run lint
 npm test
 npm run build
