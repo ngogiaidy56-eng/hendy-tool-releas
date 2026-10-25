@@ -3,9 +3,9 @@ import JSZip from 'jszip';
 import {
   Activity, ArrowDownToLine, ArrowLeft, ArrowRight, Boxes, Check, CheckCircle2,
   ChevronRight, CircleAlert, CloudUpload, Code2, Cpu, FileArchive, FileCode2,
-  FileText, FolderOpen, Gauge, GitBranch, Github, History, KeyRound, LayoutDashboard,
+  FileText, FolderOpen, Gauge, GitBranch, Github, History, LayoutDashboard,
   LoaderCircle, LockKeyhole, Monitor, Package, Rocket, Settings, ShieldCheck,
-  Smartphone, Terminal, Trash2, Upload, X, Zap, Store, ExternalLink, RefreshCw
+  Smartphone, Terminal, Trash2, Upload, X, Zap, Store, ExternalLink
 } from 'lucide-react';
 
 type ViewKey = 'overview' | 'builder' | 'releases' | 'storefront' | 'settings';
