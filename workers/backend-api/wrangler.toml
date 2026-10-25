@@ -1,0 +1,15 @@
+name = "hendy-backend-api"
+main = "src/index.js"
+compatibility_date = "2026-10-26"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hendy-app-store"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[[r2_buckets]]
+binding = "RELEASES_BUCKET"
+bucket_name = "hendy-app-releases"
+
+[vars]
+ENVIRONMENT = "production"
