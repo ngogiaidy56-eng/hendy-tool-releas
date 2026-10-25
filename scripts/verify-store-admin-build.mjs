@@ -16,6 +16,7 @@ const resourcesProvisioner = read("scripts/provision-cloudflare-resources.mjs");
 const deployWorkflow = read(".github/workflows/deploy-cloudflare.yml");
 const pagesWrangler = read("wrangler.pages.toml");
 const bootstrapWrangler = read("wrangler.bootstrap.toml");
+const packageJson = JSON.parse(read("package.json"));
 
 assert.notEqual(storeHtml, adminHtml, "Storefront and Admin must be separate HTML documents");
 assert.match(storeHtml, /Hendy Store/, "Storefront branding must exist in its built document");
@@ -50,6 +51,11 @@ assert.ok(resourcesProvisioner.includes("BACKEND_ORIGIN"), "Provisioner must lin
 assert.ok(deployWorkflow.includes("wrangler.bootstrap.toml"), "CI must bootstrap Worker before requiring Access secrets");
 assert.ok(deployWorkflow.includes("--secrets-file"), "CI must upload the runtime secret bundle during final Worker deploy");
 assert.ok(deployWorkflow.includes("smoke-test-cloudflare.mjs"), "CI must smoke-test Worker and Pages after deploy");
+assert.ok(deployWorkflow.includes("pages functions build functions --outfile=dist/_worker.js"), "Pages Functions must be bundled into the Direct Upload output");
+assert.ok(deployWorkflow.includes("--no-bundle"), "Pages Direct Upload must upload the already-built Functions bundle");
+assert.ok(packageJson.scripts["deploy:pages"].includes("pages functions build functions --outfile=dist/_worker.js"), "Manual Pages deployment must also build its Functions bundle");
+assert.ok(worker.includes('authorization.match(/^Bearer\\s+(.+)$/i)'), "CI publisher must correctly parse a Bearer token");
+
 assert.ok(pagesGateway.includes("admin_requires_primary_origin"), "Pages must not expose the separate Admin API");
 assert.ok(pagesGateway.includes("ci_publish_requires_primary_origin"), "Pages must not proxy CI publisher uploads");
 assert.ok(worker.includes('path === "/api/v1/ci/publish"'), "Worker must expose an isolated CI publish endpoint");
