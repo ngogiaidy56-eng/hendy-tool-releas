@@ -23,8 +23,8 @@ const requiredWorkerSecrets = [
 // and passed through --secrets-file. Do not mark them required in the Wrangler config:
 // Cloudflare Workers Builds invokes npm run deploy:worker without that file. The Worker
 // validates Access at request time and fails closed until its auth secrets are configured.
-assert.doesNotMatch(wrangler, /^\\[secrets\\]/m, "Wrangler config must allow Workers Builds to deploy without a local secrets file");
-assert.doesNotMatch(compatibilityWrangler, /^\\[secrets\\]/m, "Compatibility Worker config must not require a local secrets file");
+assert.doesNotMatch(wrangler, /^\[secrets\]/m, "Wrangler config must allow Workers Builds to deploy without a local secrets file");
+assert.doesNotMatch(compatibilityWrangler, /^\[secrets\]/m, "Compatibility Worker config must not require a local secrets file");
 for (const name of requiredWorkerSecrets) {
   assert.match(worker, new RegExp("\\b" + name + "\\??\\s*:"), "Worker Env type must declare " + name);
   assert.ok(access.includes(name), "Access provisioner must manage runtime secret " + name);
