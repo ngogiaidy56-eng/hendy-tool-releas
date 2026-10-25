@@ -16,6 +16,7 @@ Useful checks after successful deployment:
 - Release manifest: `/api/v1/public/manifest.json`
 - Domain overview: `/api/v1/domains`
 - Edge telemetry: `/api/v1/telemetry`
+- Runtime readiness (non-secret checks): `/api/v1/runtime/readiness`
 
 ## GitHub Actions deployment to Cloudflare Workers & Pages
 
@@ -42,8 +43,8 @@ On each matching push to `main` (or manual **Run workflow**), the deployment wor
 2. Creates R2 bucket `hendy-tool-releases` and Pages project `hendy-tool-releas` if absent. Existing Pages production/preview environment variables are merged rather than replaced.
 3. Creates/reuses a Cloudflare Zero Trust organization and an email one-time-PIN identity provider. It creates or updates Access applications for `/admin*`, `/studio*`, `/admin.html` and `/api/v1/admin/*`, with policies restricted to `CF_ACCESS_ADMIN_EMAILS`.
 4. Bootstraps Worker assets, provisions runtime identity, generates a temporary secrets file **outside the repository**, and deploys the final Worker. Cloudflare secret values are masked and never printed into logs.
-5. Deploys only `dist/index.html` and public assets to Pages; `dist/admin.html` is removed before the Pages upload. Pages public API paths proxy to the primary Worker. Admin API paths at the separate Pages origin are explicitly denied.
-6. Runs post-deploy smoke tests against the Worker health/readiness endpoints and Pages proxy. The workflow fails if the required runtime bindings are missing or the Admin route remains in setup-error state.
+5. Removes `dist/admin.html` before Pages upload, compiles `functions/api/[[path]].ts` into `dist/_worker.js` plus `dist/_routes.json`, then deploys the storefront and public API proxy. Pages Admin and CI publisher paths are explicitly denied.
+6. Runs post-deploy smoke tests against Worker health/readiness, the real R2-backed catalog, the Pages proxy, and the expected 403 responses for Admin/CI endpoints on Pages. The workflow fails if runtime bindings are missing or the Admin route remains in setup-error state.
 
 Non-secret runtime variables such as `ENVIRONMENT`, `APP_NAME`, `PUBLIC_BASE_URL` and Pages `BACKEND_ORIGIN` are declared in Wrangler/Pages configuration and reconciled by the provisioning script. Required Worker secret names are declared in `wrangler.toml`. The Access issuer, application audience tags and allow-list are linked into the Worker at deploy time. The CI publisher token is separate from interactive Admin login; the Admin API can authenticate through Access even when no repository publisher token exists.
 
@@ -64,8 +65,8 @@ Useful links:
 - `wrangler.toml`: **canonical production Worker configuration** for the GitHub Actions deployment. This is the file used by `npm run deploy:worker`; Worker assets are read from `.worker-dist/`.
 - `scripts/prepare-worker-assets.mjs`: prepares `.worker-dist/` from `dist/` and removes only the Pages `_redirects` catch-all rewrite, which Cloudflare Workers rejects as a redirect loop. The original `dist/` remains unchanged for Pages deployment.
 - `wrangler.worker.toml`: compatibility copy of the Worker config for older manual commands. It also points to `.worker-dist/`; prefer the root `wrangler.toml` for Workers Builds.
-- `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
-- `functions/api/[[path]].ts`: optional Pages Functions API gateway. Set `BACKEND_ORIGIN=https://hendy-tool-releas.ngogiaidy56.workers.dev` in the Pages project's production environment if API paths should proxy to the Worker.
+- `wrangler.pages.toml`: Pages Direct Upload config with build output and runtime variables; the provisioning script reconciles `BACKEND_ORIGIN` for production and preview.
+- `functions/api/[[path]].ts`: Pages Functions API gateway. The GitHub workflow compiles this into `dist/_worker.js` and generates `dist/_routes.json` before upload; it proxies public API paths to the Worker and denies Admin/CI publish paths.
 - `server.ts`: optional Express server for Node/Render. Cloudflare Workers does not run this file.
 - `.github/workflows/deploy-cloudflare.yml`: GitHub Actions source of truth for runtime provisioning, Worker + Pages deployment and post-deploy smoke tests. It keeps Admin HTML on the Worker and the Pages deployment storefront-only.
 - `scripts/provision-cloudflare-resources.mjs`: idempotently creates R2/Pages resources and links runtime variables without overwriting unrelated existing settings.
