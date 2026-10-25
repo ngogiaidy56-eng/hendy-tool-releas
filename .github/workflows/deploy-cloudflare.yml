@@ -106,8 +106,13 @@ jobs:
           test ! -e dist/admin.html
           echo "Private Admin HTML remains only in the Access-gated Worker asset bundle."
 
+      - name: Compile Pages Functions into the Direct Upload Worker bundle
+        run: |
+          npx --yes wrangler@4 pages functions build functions --outfile=dist/_worker.js
+          test -s dist/_worker.js
+
       - name: Deploy Pages storefront and API proxy
-        run: npx --yes wrangler@4 pages deploy dist --config=wrangler.pages.toml --project-name=hendy-tool-releas --branch=main
+        run: npx --yes wrangler@4 pages deploy dist --config=wrangler.pages.toml --project-name=hendy-tool-releas --branch=main --no-bundle
 
       - name: Smoke-test live Worker and Pages routes
         run: node scripts/smoke-test-cloudflare.mjs
