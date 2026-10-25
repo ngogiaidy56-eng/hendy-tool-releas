@@ -526,6 +526,15 @@ function runtimeChecks(env: Env) {
   };
 }
 
+function runtimeMissingChecks(checks: ReturnType<typeof runtimeChecks>): string[] {
+  const missing: string[] = [];
+  if (!checks.staticAssets) missing.push("ASSETS");
+  if (!checks.releaseStorage) missing.push("RELEASES_BUCKET");
+  if (!checks.adminAccess) missing.push("Cloudflare Access runtime secrets");
+  if (!checks.ciPublisher) missing.push("RELEASE_PUBLISH_TOKEN");
+  return missing;
+}
+
 async function verifyCloudflareAccess(request: Request, env: Env): Promise<Response | null> {
   const teamDomain = env.CF_ACCESS_TEAM_DOMAIN?.trim().replace(/\/+$/, "");
   const expectedAudiences = (env.CF_ACCESS_AUD || "").split(",").map((value) => value.trim()).filter(Boolean);
@@ -601,7 +610,7 @@ function adminAccessPage(status: number): Response {
     ? "Không gian quản trị chưa sẵn sàng"
     : identityDenied ? "Tài khoản chưa được cấp quyền" : "Vui lòng đăng nhập để tiếp tục";
   const message = needsSetup
-    ? "Không gian quản trị hiện chưa thể mở. Vui lòng thử lại sau hoặc liên hệ người vận hành hệ thống."
+    ? "Worker chưa liên kết đầy đủ cấu hình Access runtime. Hãy chạy workflow Deploy Hendy Store to Cloudflare Workers & Pages trên GitHub sau khi đã thiết lập CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID và CF_ACCESS_ADMIN_EMAILS."
     : identityDenied
       ? "Tài khoản hiện tại chưa được cấp quyền truy cập không gian quản trị."
       : "Bạn cần đăng nhập bằng tài khoản được cấp quyền để tiếp tục.";
@@ -684,7 +693,8 @@ async function adminStatusResponse(request: Request, env: Env): Promise<Response
   if (denied) return denied;
   return json({
     success: true,
-    storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
+    storageConfigured: Boolean(env.RELEASES_BUCKET?.head && env.RELEASES_BUCKET?.get &&
+      env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
     publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
     accessConfigured: isCloudflareAccessConfigured(env),
     adminAllowlistConfigured: Boolean((env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
@@ -736,8 +746,11 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
       frontend: baseUrl(request, env),
       readiness: {
         adminUi: checks.staticAssets && checks.adminAccess,
+        adminWorkspace: checks.staticAssets && checks.releaseStorage && checks.adminAccess,
         releaseApi: checks.releaseStorage,
         ciPublisher: checks.ciPublisher,
+        ready: checks.staticAssets && checks.releaseStorage && checks.adminAccess && checks.ciPublisher,
+        missing: runtimeMissingChecks(checks),
       },
       endpoints: ["/api/v1/meta", "/api/v1/releases", "/api/v1/runtime/readiness", "/api/v1/domains"],
     });
@@ -751,8 +764,9 @@ async function routeApi(request: Request, env: Env): Promise<Response | null> {
       service: env.APP_NAME || "Hendy Tools Platform & App Downloader",
       environment: env.ENVIRONMENT || "production",
       checkedAt: new Date().toISOString(),
-      ready: checks.staticAssets && checks.releaseStorage && checks.adminAccess,
-      adminReady: checks.staticAssets && checks.adminAccess,
+      ready: checks.staticAssets && checks.releaseStorage && checks.adminAccess && checks.ciPublisher,
+      adminReady: checks.staticAssets && checks.releaseStorage && checks.adminAccess,
+      missing: runtimeMissingChecks(checks),
       checks: {
         worker: true,
         staticAssets: checks.staticAssets,
