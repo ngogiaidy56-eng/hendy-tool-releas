@@ -504,6 +504,7 @@ export default function StudioWorkspace({ onReturnToStore }: { onReturnToStore: 
                 </div>
                 <div className="rounded-2xl border border-white/[.08] bg-[#11131d] p-5 sm:p-6"><div className="flex items-center gap-3"><Github size={19} className="text-slate-300"/><div><h2 className="font-extrabold">Source và CI/CD</h2><p className="mt-1 text-xs text-slate-500">Truy cập mã nguồn và quy trình build/release.</p></div></div><div className="mt-4 flex flex-wrap gap-2"><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]"><Github size={14}/> Repository <ExternalLink size={12}/></a><a href="https://github.com/ngogiaidy56-eng/hendy-tool-releas/actions/workflows/build-and-publish-release.yml" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-white/[.1] px-4 py-2.5 text-xs font-bold hover:bg-white/[.05]"><GitBranch size={14}/> GitHub Actions <ExternalLink size={12}/></a></div></div>
               </section>
+            )}
           </div>
           {progressMessage && <div aria-live="polite" className="fixed bottom-4 right-4 z-40 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-xl border border-violet-400/20 bg-[#171827] px-4 py-3 text-xs text-violet-100 shadow-2xl"><LoaderCircle size={15} className="shrink-0 animate-spin"/><span>{progressMessage}</span></div>}
         </main>
