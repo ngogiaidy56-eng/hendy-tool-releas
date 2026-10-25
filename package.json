@@ -12,7 +12,7 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test src/utils/*.test.ts",
     "deploy:worker": "node scripts/prepare-worker-assets.mjs && npx --yes wrangler@4 deploy --config=wrangler.toml",
-    "deploy:pages": "npx --yes wrangler@4 pages deploy dist --project-name=hendy-tool-releas --branch=main",
+    "deploy:pages": "npm run build && npx --yes wrangler@4 pages functions build functions --outfile=dist/_worker.js && rm -f dist/admin.html && npx --yes wrangler@4 pages deploy dist --config=wrangler.pages.toml --project-name=hendy-tool-releas --branch=main --no-bundle",
     "package:web-release": "node scripts/package-web-release.mjs",
     "provision:cloudflare:resources": "node scripts/provision-cloudflare-resources.mjs",
     "provision:cloudflare:access": "node scripts/provision-cloudflare-access.mjs",
