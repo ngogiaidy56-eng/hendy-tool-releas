@@ -9,12 +9,14 @@ on:
       - 'public/**'
       - 'index.html'
       - 'admin.html'
-      - 'package.json'
-      - 'package-lock.json'
+      - 'package*.json'
+      - 'bun.lock*'
+      - 'tsconfig*.json'
       - 'wrangler*.toml'
       - 'vite.config.ts'
       - 'scripts/**'
-      - '.github/workflows/deploy-cloudflare.yml'
+      - '.env.example'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
@@ -66,6 +68,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+
+      - name: Validate Worker, Pages and runtime secret contract
+        run: npm run check:deployment
 
       - name: Typecheck and test Worker, auth, Pages gateway
         run: |
