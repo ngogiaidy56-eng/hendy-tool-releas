@@ -66,16 +66,13 @@ try {
   rmSync(backupDir, { recursive: true, force: true });
   if (existsSync(targetDir)) {
     // Preserve the previous source snapshot so a failed swap can be rolled back.
-    const { renameSync } = await import("node:fs");
     renameSync(targetDir, backupDir);
   }
   try {
-    const { renameSync } = await import("node:fs");
     renameSync(stageDir, targetDir);
     rmSync(backupDir, { recursive: true, force: true });
   } catch (error) {
     if (existsSync(backupDir) && !existsSync(targetDir)) {
-      const { renameSync } = await import("node:fs");
       renameSync(backupDir, targetDir);
     }
     throw error;
