@@ -671,7 +671,7 @@ async function adminStatusResponse(request: Request, env: Env): Promise<Response
     success: true,
     storageConfigured: Boolean(env.RELEASES_BUCKET?.put && env.RELEASES_BUCKET?.list),
     publishSecretConfigured: Boolean(env.RELEASE_PUBLISH_TOKEN?.trim()),
-    accessConfigured: Boolean(env.CF_ACCESS_TEAM_DOMAIN?.trim() && env.CF_ACCESS_AUD?.trim() && (env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
+    accessConfigured: isCloudflareAccessConfigured(env),
     adminAllowlistConfigured: Boolean((env.CF_ACCESS_ADMIN_EMAILS || "").split(",").some((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))),
     nativeBuilders: {
       windows: "ci-runner-required",
