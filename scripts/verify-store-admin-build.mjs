@@ -65,15 +65,19 @@ assert.ok(resourcesProvisioner.includes("BACKEND_ORIGIN"), "Provisioner must lin
 assert.ok(deployWorkflow.includes("wrangler.bootstrap.toml"), "CI must bootstrap Worker before requiring Access secrets");
 assert.ok(deployWorkflow.includes("--secrets-file"), "CI must upload the runtime secret bundle during final Worker deploy");
 assert.ok(deployWorkflow.includes("smoke-test-cloudflare.mjs"), "CI must smoke-test Worker and Pages after deploy");
-assert.ok(deployWorkflow.includes("pages functions build functions --outfile=dist/_worker.js"), "Pages Functions must be bundled into the Direct Upload output");
-assert.ok(deployWorkflow.includes("--output-routes-path=dist/_routes.json"), "Pages Functions route manifest must be emitted with the Worker bundle");
-assert.ok(deployWorkflow.includes("test -s dist/_routes.json"), "Deployment must fail if the Pages route manifest is missing");
+assert.ok(deployWorkflow.includes("npm run build:pages:functions"), "Pages Functions gateway must be built separately for each Pages project");
+assert.ok(deployWorkflow.includes("dist-pages/web-user"), "Deployment must include the independent web-user build output");
+assert.ok(deployWorkflow.includes("dist-pages/web-admin"), "Deployment must include the independent web-admin build output");
+assert.ok(deployWorkflow.includes("dist-pages/operations"), "Deployment must include the independent operations build output");
+assert.ok(deployWorkflow.includes("npm run verify:pages"), "Deployment must verify all three independent Pages bundles before upload");
 
 assert.ok(deployWorkflow.includes("--no-bundle"), "Pages Direct Upload must upload the already-built Functions bundle");
-assert.ok(packageJson.scripts["deploy:pages"].includes("pages functions build functions --outfile=dist/_worker.js"), "Manual Pages deployment must also build its Functions bundle");
+assert.ok(packageJson.scripts["deploy:pages"].includes("build:pages:functions"), "Manual Pages deployment must build its Functions bundle for each app");
 assert.ok(worker.includes('authorization.match(/^Bearer\\s+(.+)$/i)'), "CI publisher must correctly parse a Bearer token");
 
-assert.ok(pagesGateway.includes("admin_requires_primary_origin"), "Pages must not expose the separate Admin API");
+assert.ok(!pagesGateway.includes("admin_requires_primary_origin"), "Admin Pages API requests must be proxied to the Worker for JWT authorization");
+assert.ok(accessProvisioner.includes("hendy-web-admin.pages.dev/*"), "Cloudflare Access must protect the separate Admin Pages hostname");
+assert.ok(accessProvisioner.includes("hendy-operations.pages.dev/*"), "Cloudflare Access must protect the Operations Pages hostname");
 assert.ok(pagesGateway.includes("ci_publish_requires_primary_origin"), "Pages must not proxy CI publisher uploads");
 assert.ok(worker.includes('path === "/api/v1/ci/publish"'), "Worker must expose an isolated CI publish endpoint");
 assert.ok(worker.includes("authorizeCiPublisher(request, env)"), "CI publish endpoint must require its own server-side token check");
