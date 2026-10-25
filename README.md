@@ -24,6 +24,8 @@ The GitHub Actions workflow `.github/workflows/deploy-cloudflare.yml` is the pro
 
 The deployment contract is checked by `npm run check:deployment`. It compares the secret names declared in `wrangler.toml`, Worker `Env` bindings, Pages `BACKEND_ORIGIN`, R2 bucket binding, provisioning scripts, deployment hooks, and post-deploy smoke checks. The check runs in the CI, Admin verification, release packaging and Cloudflare deployment workflows to catch drift before production deployment.
 
+The Cloudflare deployment can be triggered automatically by a matching push to `main`, manually from **Actions → Deploy Hendy Store to Cloudflare Workers & Pages**, or by sending a GitHub `repository_dispatch` event of type `deploy-cloudflare` from an authorized automation system. The dispatch caller needs a GitHub token with permission to dispatch repository events; do not use the Cloudflare API token for this hook.
+
 ### One-time GitHub configuration
 
 In **GitHub → Settings → Secrets and variables → Actions**, add:
