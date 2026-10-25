@@ -1,4 +1,4 @@
-# Canonical Wrangler configuration used by Cloudflare Workers Builds.
+# Canonical production Worker configuration used by the GitHub Actions deployment.
 # Keep the Worker name exactly "hendy-tool-releas" to retain its workers.dev URL.
 name = "hendy-tool-releas"
 main = "./src/worker.ts"
