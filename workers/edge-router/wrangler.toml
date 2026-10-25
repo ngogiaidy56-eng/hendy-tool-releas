@@ -1,0 +1,9 @@
+name = "hendy-edge-router"
+main = "src/index.js"
+compatibility_date = "2026-10-26"
+workers_dev = true
+
+[vars]
+USER_PAGES_URL = "https://hendy-web-user.pages.dev"
+ADMIN_PAGES_URL = "https://hendy-web-admin.pages.dev"
+OPERATIONS_PAGES_URL = "https://hendy-operations.pages.dev"
