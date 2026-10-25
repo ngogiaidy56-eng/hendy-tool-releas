@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownToLine, ArrowRight, Boxes, ChevronDown, ExternalLink,
-  Github, Grid2X2, Monitor, Package, Search, ShieldCheck,
-  Smartphone, Sparkles, Store, TerminalSquare, X
+  Grid2X2, Monitor, Package, Search, ShieldCheck,
+  Smartphone, Sparkles, Store, X
 } from 'lucide-react';
 
 type ReleaseItem = {
@@ -12,7 +12,7 @@ type ReleaseItem = {
 };
 type StorefrontConfig = {
   brandName: string; announcement: string; heroEyebrow: string; heroTitle: string;
-  heroAccent: string; heroDescription: string; supportUrl: string; repositoryUrl: string;
+  heroAccent: string; heroDescription: string; supportUrl: string;
 };
 type AppListing = { slug: string; name: string; version: string; platforms: string[]; artifacts: ReleaseItem[]; newestDate: string; notes: string };
 
@@ -20,7 +20,7 @@ const DEFAULT_CONFIG: StorefrontConfig = {
   brandName: 'Hendy Store', announcement: '', heroEyebrow: 'ỨNG DỤNG · CÔNG CỤ · BẢN PHÁT HÀNH',
   heroTitle: 'Tất cả ứng dụng', heroAccent: 'trong một nơi.',
   heroDescription: 'Khám phá ứng dụng và tải xuống các bản phát hành thật, với thông tin phiên bản và mã kiểm tra tệp rõ ràng.',
-  supportUrl: '', repositoryUrl: 'https://github.com/ngogiaidy56-eng/hendy-tool-releas'
+  supportUrl: ''
 };
 const PLATFORM_LABELS: Record<string, string> = { windows: 'Windows', android: 'Android', ios: 'iOS', macos: 'macOS', linux: 'Linux', web: 'Web / Source' };
 const PLATFORM_ORDER = ['windows', 'macos', 'linux', 'android', 'ios', 'web'];
@@ -71,7 +71,7 @@ function groupReleases(releases: ReleaseItem[]): AppListing[] {
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void }) {
+export default function StorefrontV2() {
   const [releases, setReleases] = useState<ReleaseItem[]>([]);
   const [config, setConfig] = useState<StorefrontConfig>(DEFAULT_CONFIG);
   const [query, setQuery] = useState('');
@@ -127,7 +127,6 @@ export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void 
     return matchesQuery && matchesPlatform && matchesCategory;
   }), [apps, query, platform, category]);
   const availableCount = releases.filter((item) => item.available && item.downloadUrl).length;
-  const repositoryUrl = safeHttps(config.repositoryUrl, DEFAULT_CONFIG.repositoryUrl);
 
   return (
     <div className="store-shell min-h-screen bg-[#f6f7fb] text-slate-900">
@@ -148,7 +147,6 @@ export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void 
               <Search size={18} className="shrink-0 text-slate-400"/><input value={query} onChange={(event) => setQuery(event.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="Tìm tên ứng dụng, công cụ hoặc nền tảng…"/>
             </label>
           </div>
-          <button onClick={onOpenAdmin} className="ml-auto inline-flex shrink-0 items-center gap-2 rounded-full bg-slate-950 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-indigo-700 md:ml-0"><TerminalSquare size={15}/><span className="hidden sm:inline">Developer Studio</span><span className="sm:hidden">Studio</span></button>
         </div>
       </header>
 
@@ -164,7 +162,7 @@ export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void 
               ].map((item) => { const Icon = item.icon; return <button key={item.key} onClick={() => setCategory(item.key as typeof category)} className={'mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ' + (category === item.key ? 'bg-indigo-50 text-indigo-700' : 'text-slate-500 hover:bg-white hover:text-slate-900')}><Icon size={17}/>{item.label}</button>; })}
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center gap-2 text-xs font-extrabold"><ShieldCheck size={16} className="text-emerald-600"/> Tệp phát hành xác thực</div><p className="mt-2 text-xs leading-5 text-slate-500">Nút tải chỉ hoạt động khi API xác nhận artifact tồn tại trong kho lưu trữ.</p><div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><span className="text-[11px] text-slate-400">Tệp sẵn sàng</span><strong className="text-sm text-emerald-700">{availableCount}</strong></div></div>
-            <div className="space-y-2 px-3 text-xs text-slate-400"><a href={repositoryUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-indigo-700"><Github size={14}/> Repository mã nguồn <ExternalLink size={11}/></a>{config.supportUrl && <a href={safeHttps(config.supportUrl, '#')} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-indigo-700"><ShieldCheck size={14}/> Hỗ trợ người dùng <ExternalLink size={11}/></a>}<button onClick={onOpenAdmin} className="flex items-center gap-2 hover:text-indigo-700"><TerminalSquare size={14}/> Trung tâm nhà phát triển</button></div>
+            {config.supportUrl && <div className="space-y-2 px-3 text-xs text-slate-400"><a href={safeHttps(config.supportUrl, '#')} target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-indigo-700"><ShieldCheck size={14}/> Hỗ trợ người dùng <ExternalLink size={11}/></a></div>}
           </div>
         </aside>
 
@@ -172,7 +170,7 @@ export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void 
           <div className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#111a48] via-[#28378a] to-[#6655d9] p-6 text-white shadow-xl shadow-indigo-100 sm:p-9 lg:p-11">
             <div className="absolute -right-16 -top-24 h-80 w-80 rounded-full border-[45px] border-white/[.06]"/><div className="absolute -bottom-36 right-[20%] h-72 w-72 rounded-full bg-cyan-300/10 blur-3xl"/>
             <div className="relative grid gap-8 xl:grid-cols-[minmax(0,1fr)_250px] xl:items-center">
-              <div className="max-w-3xl"><div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[.18em] text-indigo-100"><Sparkles size={13}/>{config.heroEyebrow}</div><h1 className="mt-5 text-4xl font-black leading-[1.04] tracking-[-.045em] sm:text-5xl xl:text-6xl">{config.heroTitle}<span className="mt-1 block text-cyan-200">{config.heroAccent}</span></h1><p className="mt-5 max-w-2xl text-sm leading-7 text-indigo-100 sm:text-base">{config.heroDescription}</p><div className="mt-7 flex flex-wrap gap-3"><a href="#catalog" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-extrabold text-indigo-800 transition hover:bg-cyan-50">Khám phá kho ứng dụng <ArrowRight size={16}/></a><button onClick={onOpenAdmin} className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/15"><TerminalSquare size={16}/> Đóng gói ứng dụng</button></div></div>
+              <div className="max-w-3xl"><div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-[.18em] text-indigo-100"><Sparkles size={13}/>{config.heroEyebrow}</div><h1 className="mt-5 text-4xl font-black leading-[1.04] tracking-[-.045em] sm:text-5xl xl:text-6xl">{config.heroTitle}<span className="mt-1 block text-cyan-200">{config.heroAccent}</span></h1><p className="mt-5 max-w-2xl text-sm leading-7 text-indigo-100 sm:text-base">{config.heroDescription}</p><div className="mt-7 flex flex-wrap gap-3"><a href="#catalog" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-extrabold text-indigo-800 transition hover:bg-cyan-50">Khám phá kho ứng dụng <ArrowRight size={16}/></a></div></div>
               <div className="hidden rounded-3xl border border-white/15 bg-slate-950/20 p-5 backdrop-blur-sm xl:block"><div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.15em] text-indigo-100"><span>Release center</span><span className="h-2 w-2 rounded-full bg-emerald-300"/></div><div className="mt-7 flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15"><Package size={23}/></div><div><div className="text-sm font-extrabold">Verified artifacts</div><div className="mt-1 text-xs text-indigo-100">Metadata from Worker API</div></div></div><div className="mt-6 space-y-3 text-xs"><div className="flex justify-between border-b border-white/10 pb-3"><span className="text-indigo-100">Ứng dụng</span><strong>{apps.length}</strong></div><div className="flex justify-between border-b border-white/10 pb-3"><span className="text-indigo-100">Tệp tải thật</span><strong>{availableCount}</strong></div><div className="flex justify-between"><span className="text-indigo-100">Kiểm tra</span><strong>SHA-256</strong></div></div></div>
             </div>
           </div>
@@ -185,13 +183,13 @@ export default function StorefrontV2({ onOpenAdmin }: { onOpenAdmin: () => void 
               const available = app.artifacts.filter((item) => item.available && item.downloadUrl);
               const colors = ['bg-gradient-to-br from-indigo-500 to-violet-700','bg-gradient-to-br from-cyan-500 to-blue-700','bg-gradient-to-br from-emerald-500 to-teal-700','bg-gradient-to-br from-rose-500 to-orange-600'];
               return <article key={app.slug} className="group flex min-h-[252px] cursor-pointer flex-col rounded-[1.6rem] border border-slate-200/80 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:border-indigo-200 hover:shadow-xl hover:shadow-indigo-100/60" onClick={() => setSelected(app)}><div className="flex items-start gap-4"><div className={'flex h-[66px] w-[66px] shrink-0 items-center justify-center rounded-[1.35rem] text-xl font-black text-white shadow-lg ' + colors[index % colors.length]}>{initials(app.name)}</div><div className="min-w-0 flex-1 pt-1"><h3 className="line-clamp-2 text-base font-extrabold leading-5 tracking-tight transition group-hover:text-indigo-700">{app.name}</h3><div className="mt-2 text-xs font-semibold text-slate-400">Phiên bản {app.version}</div><div className="mt-2 flex flex-wrap gap-1">{app.platforms.map((p) => <span key={p} className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{PLATFORM_LABELS[p] || p}</span>)}</div></div></div><p className="mt-4 line-clamp-2 text-xs leading-5 text-slate-500">{app.notes}</p><div className="mt-auto flex items-center justify-between gap-3 border-t border-slate-100 pt-4"><span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400"><ShieldCheck size={14} className="text-emerald-600"/>{available.length} tệp có thể tải</span><button onClick={(event) => { event.stopPropagation(); setSelected(app); }} className="rounded-full bg-indigo-50 px-4 py-2 text-xs font-extrabold text-indigo-700 transition hover:bg-indigo-600 hover:text-white">Chi tiết</button></div></article>;
-            })}</div> : <div className="mt-7 rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><Package size={24}/></div><h3 className="mt-4 text-lg font-extrabold">Chưa có ứng dụng đã phát hành</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Kho chỉ hiển thị bản phát hành thật. Nhà phát triển có thể nạp mã nguồn, tạo gói hoặc tải artifact đã build từ CI lên R2.</p><button onClick={onOpenAdmin} className="mt-5 inline-flex items-center gap-2 rounded-full bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-700">Mở Developer Studio <ArrowRight size={16}/></button></div>}
+            })}</div> : <div className="mt-7 rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-16 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600"><Package size={24}/></div><h3 className="mt-4 text-lg font-extrabold">Chưa có ứng dụng đã phát hành</h3><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">Kho chỉ hiển thị bản phát hành thật. Nhà phát triển có thể nạp mã nguồn, tạo gói hoặc tải artifact đã build từ CI lên R2.</p></div>}
 
           <section id="security" className="mt-12 rounded-3xl border border-slate-200 bg-white p-6 sm:p-8"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ShieldCheck size={21}/></div><div><h2 className="font-extrabold">Tải xuống minh bạch</h2><p className="mt-1 text-xs text-slate-500">Thông tin bản phát hành đọc trực tiếp từ backend.</p></div></div><div className="mt-6 grid gap-5 sm:grid-cols-3">{[{title:'Chỉ hiện artifact thật',text:'Nút tải dựa vào object tồn tại trong R2, không tạo link tải giả.'},{title:'Thông tin tệp rõ ràng',text:'Phiên bản, nền tảng, dung lượng và checksum hiển thị khi API có dữ liệu.'},{title:'Quy trình phát hành',text:'Nguồn, build, kiểm thử và ký số được quản lý từ Studio hoặc CI.'}].map((item) => <div key={item.title}><div className="text-sm font-extrabold">{item.title}</div><p className="mt-2 text-xs leading-5 text-slate-500">{item.text}</p></div>)}</div></section>
         </main>
       </div>
 
-      <footer className="border-t border-slate-200 bg-white"><div className="mx-auto flex max-w-[1600px] flex-col justify-between gap-3 px-5 py-6 text-xs text-slate-400 sm:flex-row sm:items-center lg:px-10"><div>© 2026 {config.brandName || 'Hendy Store'} · App discovery & software releases</div><div className="flex flex-wrap items-center gap-4"><a className="flex items-center gap-1.5 hover:text-indigo-700" href={repositoryUrl} target="_blank" rel="noreferrer"><Github size={14}/> Source code <ExternalLink size={11}/></a><button onClick={onOpenAdmin} className="flex items-center gap-1.5 font-bold text-slate-600 hover:text-indigo-700"><TerminalSquare size={14}/> Developer Studio</button></div></div></footer>
+      <footer className="border-t border-slate-200 bg-white"><div className="mx-auto flex max-w-[1600px] flex-col justify-between gap-3 px-5 py-6 text-xs text-slate-400 sm:flex-row sm:items-center lg:px-10"><div>© 2026 {config.brandName || 'Hendy Store'} · App discovery & software releases</div></div></footer>
 
       {selected && <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-labelledby="app-details-title" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}><div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-t-[2rem] bg-white shadow-2xl sm:rounded-[2rem]">
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 p-6 sm:p-8"><div className="flex min-w-0 items-center gap-4"><div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-700 text-xl font-black text-white">{initials(selected.name)}</div><div className="min-w-0"><h2 id="app-details-title" className="text-2xl font-black tracking-tight">{selected.name}</h2><p className="mt-1 text-sm text-slate-500">Phiên bản {selected.version} · {selected.platforms.map((p) => PLATFORM_LABELS[p] || p).join(' · ')}</p><p className="mt-2 text-xs text-slate-400">Cập nhật {formatDate(selected.newestDate)}</p></div></div><button onClick={() => setSelected(null)} aria-label="Đóng chi tiết" className="rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-900"><X size={20}/></button></div>
