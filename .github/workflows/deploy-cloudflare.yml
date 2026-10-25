@@ -18,6 +18,8 @@ on:
       - '.env.example'
       - '.github/workflows/**'
   workflow_dispatch:
+  repository_dispatch:
+    types: [deploy-cloudflare]
 
 permissions:
   contents: read
