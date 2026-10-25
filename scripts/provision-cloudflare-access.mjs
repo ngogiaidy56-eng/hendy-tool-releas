@@ -76,7 +76,25 @@ async function ensureAccessOrganization() {
   return "https://" + authDomain;
 }
 
-async function ensureAdminApplications(teamDomain) {
+async function ensureOneTimePinIdentityProvider() {
+  const providers = resultArray(await api("/accounts/" + accountId + "/access/identity_providers?per_page=100"));
+  const otp = providers.find((provider) => provider.type === "onetimepin");
+  if (otp?.id) {
+    console.log("Cloudflare Access email one-time-PIN identity provider is ready.");
+    return otp.id;
+  }
+  const created = await api("/accounts/" + accountId + "/access/identity_providers", {
+    method: "POST",
+    body: { name: "Hendy Admin Email OTP", type: "onetimepin", config: {} },
+  });
+  if (!created?.id) {
+    throw new Error("Cloudflare Access did not return an ID for the One-time PIN identity provider.");
+  }
+  console.log("Created Cloudflare Access email one-time-PIN identity provider.");
+  return created.id;
+}
+
+async function ensureAdminApplications(teamDomain, identityProviderId) {
   const existing = resultArray(await api("/accounts/" + accountId + "/access/apps?per_page=100"));
   const protectedPaths = [
     { name: "Hendy Admin Console", path: "/admin*" },
@@ -94,6 +112,7 @@ async function ensureAdminApplications(teamDomain) {
       session_duration: "24h",
       app_launcher_visible: false,
       auto_redirect_to_identity: false,
+      allowed_idps: [identityProviderId],
       policies: [{
         name: "Hendy Admin allow-listed emails",
         decision: "allow",
@@ -130,7 +149,8 @@ async function ensureAdminApplications(teamDomain) {
 }
 
 const teamDomain = await ensureAccessOrganization();
-const audiences = await ensureAdminApplications(teamDomain);
+const identityProviderId = await ensureOneTimePinIdentityProvider();
+const audiences = await ensureAdminApplications(teamDomain, identityProviderId);
 const publishToken = (process.env.RELEASE_PUBLISH_TOKEN || "").trim() || randomBytes(32).toString("base64url");
 const secrets = {
   RELEASE_PUBLISH_TOKEN: publishToken,
@@ -161,6 +181,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     "- Cloudflare Access organization: ready",
     "- Protected Admin path applications: 4 configured",
     "- Admin allow-list: configured (values intentionally omitted)",
+    "- Email one-time-PIN identity provider: configured",
     "- Worker secrets file: generated outside the repository",
     "- Secret values: masked; not printed or committed",
     "",
