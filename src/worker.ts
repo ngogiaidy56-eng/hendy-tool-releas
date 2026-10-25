@@ -531,7 +531,7 @@ function runtimeMissingChecks(checks: ReturnType<typeof runtimeChecks>): string[
   if (!checks.staticAssets) missing.push("ASSETS");
   if (!checks.releaseStorage) missing.push("RELEASES_BUCKET");
   if (!checks.adminAccess) missing.push("Cloudflare Access runtime secrets");
-  if (!checks.ciPublisher) missing.push("RELEASE_PUBLISH_TOKEN");
+  if (!checks.ciPublisher) missing.push("CI publisher secret");
   return missing;
 }
 
