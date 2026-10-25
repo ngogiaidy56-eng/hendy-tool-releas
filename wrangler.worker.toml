@@ -19,3 +19,6 @@ PUBLIC_BASE_URL = "https://hendy-tool-releas.ngogiaidy56.workers.dev"
 [[r2_buckets]]
 binding = "RELEASES_BUCKET"
 bucket_name = "hendy-tool-releases"
+
+[secrets]
+required = ["CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_ADMIN_EMAILS"]
