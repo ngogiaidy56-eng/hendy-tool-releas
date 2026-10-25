@@ -1,4 +1,4 @@
-# Canonical Wrangler configuration used by Cloudflare Workers Builds.
+# Compatibility Worker config; the GitHub Actions workflow uses wrangler.toml.
 # Keep the Worker name exactly "hendy-tool-releas" to retain its workers.dev URL.
 name = "hendy-tool-releas"
 main = "./src/worker.ts"
