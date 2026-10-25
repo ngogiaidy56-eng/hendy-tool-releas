@@ -25,7 +25,8 @@
     "build:pages:functions": "node scripts/build-pages-functions.mjs",
     "verify:pages": "node scripts/verify-three-pages-build.mjs",
     "dev:operations": "vite --config vite.operations.config.ts",
-    "build:all": "npm run build && npm run build:pages"
+    "build:all": "npm run build && npm run build:pages",
+    "sync:app-store": "node scripts/sync-app-store-upstream.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

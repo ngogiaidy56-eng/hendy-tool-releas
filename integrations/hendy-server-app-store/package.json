@@ -1,0 +1,49 @@
+{
+  "name": "hendy-server-app-store",
+  "private": true,
+  "version": "3.3.0",
+  "type": "module",
+  "workspaces": [
+    "apps/web-user",
+    "apps/web-admin",
+    "packages/shared-types",
+    "packages/db-schema"
+  ],
+  "scripts": {
+    "dev:web": "vite --host 0.0.0.0",
+    "dev": "npm run provision:cloudflare && npm run build && npx --yes wrangler@4 pages dev dist --config=wrangler.generated.jsonc",
+    "build": "vite build && node automation/verify-build.mjs",
+    "preview": "npx --yes wrangler@4 pages dev dist --config=wrangler.generated.jsonc",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test src/utils/*.test.ts tests/*.test.mjs",
+    "verify:build": "node automation/verify-build.mjs",
+    "provision:cloudflare": "node automation/provision-cloudflare-resources.mjs",
+    "provision:access": "node automation/provision-cloudflare-access.mjs",
+    "db:migrate": "npx --yes wrangler@4 d1 migrations apply hendy-app-store-db --remote --config=wrangler.generated.jsonc",
+    "deploy:pages": "npm run build && npm run provision:cloudflare && npm run db:migrate && npm run provision:access && npx --yes wrangler@4 pages deploy dist --project-name=hendy-app-store --branch=main --config=wrangler.generated.jsonc",
+    "smoke:cloudflare": "node automation/smoke-test-cloudflare.mjs",
+    "package:web-release": "node scripts/package-web-release.mjs"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "firebase": "^13.1.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.0",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.21.0",
+    "typescript": "^7.0.2"
+  }
+}

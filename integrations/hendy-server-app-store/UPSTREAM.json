@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/ngogiaidy56-eng/hendy-server-app-store",
+  "branch": "main",
+  "sourceCommit": "e3da21e59038800d0b5405d28a8fe11c642e2b62",
+  "syncedAt": "2026-10-26T00:00:00Z",
+  "syncPolicy": "excludes .aistudio generated media, binary media/installers and firebase-applet-config.json; preserves source code and Pages Functions as an isolated upstream snapshot"
+}

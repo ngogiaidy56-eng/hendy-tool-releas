@@ -1,0 +1,45 @@
+name: Sync App Store upstream into integration snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-app-store-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Import latest upstream source
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Synchronize upstream source
+        run: npm run sync:app-store
+      - name: Check whitespace errors
+        run: git diff --check
+      - name: Commit upstream snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/hendy-server-app-store
+          if git diff --cached --quiet; then
+            echo "Upstream snapshot is already current."
+            exit 0
+          fi
+          git commit -m "chore(sync): update hendy-server-app-store upstream snapshot"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

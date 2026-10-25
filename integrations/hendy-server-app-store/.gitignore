@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+.runtime/
+wrangler.generated.jsonc
+*.secrets.json
+release-artifacts/

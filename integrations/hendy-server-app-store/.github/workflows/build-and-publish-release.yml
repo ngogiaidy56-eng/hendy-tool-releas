@@ -1,0 +1,118 @@
+name: Build and publish Hendy web release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'functions/**'
+      - 'packages/**'
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'admin.html'
+      - 'package.json'
+      - 'scripts/package-web-release.mjs'
+      - '.github/workflows/build-and-publish-release.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer release version, for example 3.3.1
+        required: true
+        type: string
+      notes:
+        description: Release notes shown in the app store
+        required: true
+        default: Web improvements and bug fixes.
+        type: string
+      publish_to_store:
+        description: Publish the real ZIP artifact to Cloudflare R2
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_VERSION: ${{ inputs.version || format('0.0.{0}-ci.{1}', github.run_number, github.run_attempt) }}
+  RELEASE_NOTES: ${{ inputs.notes || 'Automated web bundle validation build.' }}
+
+concurrency:
+  group: hendy-web-release-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  build-package:
+    name: Build and package the actual web app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PAGES_PROJECT_NAME: hendy-app-store
+      APP_PUBLIC_HOST: ${{ vars.APP_PUBLIC_HOST || 'hendy-app-store.pages.dev' }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build production website
+        run: npm run build
+
+      - name: Package website and calculate checksums
+        run: npm run package:web-release
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hendy-store-web-${{ env.RELEASE_VERSION }}
+          path: |
+            release-artifacts/hendy-store-web-v${{ env.RELEASE_VERSION }}.zip
+            release-artifacts/hendy-store-web-v${{ env.RELEASE_VERSION }}.zip.sha256
+            release-artifacts/release-summary.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Validate stable publisher token before publishing
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_to_store }}
+        id: publisher
+        env:
+          RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="${RELEASE_PUBLISH_TOKEN:-}"
+          if [ "${#TOKEN}" -lt 32 ]; then
+            echo "::error::Configure RELEASE_PUBLISH_TOKEN as a stable repository secret. It must match the Pages secret created by deploy.yml."
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Publish artifact to Cloudflare Pages Functions and R2
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_to_store }}
+        env:
+          RELEASE_PUBLISH_TOKEN: ${{ steps.publisher.outputs.token }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          RELEASE_NOTES: ${{ env.RELEASE_NOTES }}
+          PUBLISH_URL: https://${{ env.APP_PUBLIC_HOST }}/api/v1/ci/publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -X POST "$PUBLISH_URL" \
+            -H "Authorization: Bearer $RELEASE_PUBLISH_TOKEN" \
+            -F "appName=Hendy Store Web" \
+            -F "appSlug=hendy-store-web" \
+            -F "version=$RELEASE_VERSION" \
+            -F "platform=web" \
+            -F "releaseNotes=$RELEASE_NOTES" \
+            -F "file=@release-artifacts/hendy-store-web-v$RELEASE_VERSION.zip;type=application/zip" \
+            --output publish-result.json
+          cat publish-result.json

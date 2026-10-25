@@ -85,3 +85,13 @@ The Admin Console can package a source bundle, create a release manifest/checksu
 - Admin API returns 401/403 after login: confirm the Pages Access assertion is forwarded, the Pages app audience is present in `CF_ACCESS_AUD`, and the Worker was redeployed after Access provisioning.
 - Empty release catalog: expected if no real artifact has been published.
 - Smoke-test failure: inspect the first failing job step; do not mark release successful until health and readiness checks pass.
+
+
+## Đồng bộ từ `hendy-server-app-store`
+
+Mã nguồn upstream được giữ tại `integrations/hendy-server-app-store/` để bảo toàn các module riêng của App Store (Pages Functions, D1 migrations, upload chứng thư mã hóa, sync logs và các thành phần tải ứng dụng) mà không ghi đè Worker API và cấu hình ba Pages hiện tại. Đây là bản nguồn tích hợp tham chiếu; các Pages Functions trong thư mục này **không tự động được triển khai** vì dự án đích dùng Worker API chung làm backend.
+
+Nguồn: https://github.com/ngogiaidy56-eng/hendy-server-app-store  
+Đồng bộ lại: `npm run sync:app-store` hoặc GitHub Actions → **Sync App Store upstream**. Workflow chỉ nhập mã nguồn, loại bỏ media sinh tự động và file cấu hình Firebase riêng; không lấy file secret hay ghi đè cấu hình triển khai ở root.
+
+Trạng thái triển khai vẫn phải được xác minh bằng GitHub Actions và smoke tests; việc đồng bộ source không tự khẳng định dịch vụ đã deploy thành công.
