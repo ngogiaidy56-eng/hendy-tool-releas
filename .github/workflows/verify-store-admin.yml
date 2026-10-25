@@ -42,9 +42,12 @@ jobs:
       - name: Build separate storefront and admin HTML entrypoints
         run: npm run build
 
-      - name: Assert both applications were emitted independently
+      - name: Assert Worker bundle and three independent Pages apps
         run: |
           test -s dist/index.html
           test -s dist/admin.html
           node scripts/verify-store-admin-build.mjs
+          npm run build:pages
+          npm run build:pages:functions
+          npm run verify:pages
 

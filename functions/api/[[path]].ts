@@ -5,9 +5,9 @@
  * primary Worker/R2 backend; this function never fabricates releases, checksums,
  * telemetry or successful responses when the backend is unavailable.
  *
- * The private Admin Console must be opened on the primary Worker/Admin host so
- * Cloudflare Access can issue an assertion for the correct application audience.
- * Admin endpoints are therefore rejected at this Pages origin.
+ * Admin and Operations Pages are protected by Cloudflare Access. The Access JWT
+ * assertion is forwarded to the Worker, which verifies issuer, audience, expiry,
+ * signature and email allow-list before allowing administrative API requests.
  */
 interface Env {
   BACKEND_ORIGIN?: string;
@@ -62,15 +62,6 @@ export async function onRequest(context: Context): Promise<Response> {
         "Vary": "Origin",
       },
     });
-  }
-
-  if (subPath === "v1/admin" || subPath.startsWith("v1/admin/") ||
-      subPath === "admin" || subPath.startsWith("admin/")) {
-    return jsonError(
-      403,
-      "admin_requires_primary_origin",
-      "Admin chỉ hoạt động trên Worker chính, nơi Cloudflare Access xác thực đúng ứng dụng. Hãy mở không gian quản trị trên domain Worker/Admin đã cấu hình."
-    );
   }
 
   if (subPath === "v1/ci/publish") {

@@ -1,4 +1,4 @@
-name: Deploy Hendy Store to Cloudflare Workers & Pages
+name: Deploy Hendy Store to Cloudflare Workers and 3 Pages
 
 on:
   push:
@@ -9,13 +9,13 @@ on:
       - 'public/**'
       - 'index.html'
       - 'admin.html'
+      - 'ops.html'
       - 'package*.json'
       - 'bun.lock*'
       - 'tsconfig*.json'
-      - 'wrangler*.toml'
-      - 'vite.config.ts'
+      - 'vite*.config.ts'
       - 'scripts/**'
-      - '.env.example'
+      - 'wrangler*.toml'
       - '.github/workflows/**'
   workflow_dispatch:
   repository_dispatch:
@@ -30,114 +30,81 @@ concurrency:
 
 jobs:
   deploy:
-    name: Validate, provision runtime, deploy Worker and Pages
+    name: Validate, provision Worker and deploy 3 Pages
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCESS_ADMIN_EMAILS: ${{ vars.CF_ACCESS_ADMIN_EMAILS || secrets.CF_ACCESS_ADMIN_EMAILS }}
       RELEASE_PUBLISH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
       APP_BASE_URL: https://hendy-tool-releas.ngogiaidy56.workers.dev
-      PAGES_BASE_URL: https://hendy-tool-releas.pages.dev
+      PAGES_BASE_URL: https://hendy-web-user.pages.dev
+      ADMIN_PAGES_BASE_URL: https://hendy-web-admin.pages.dev
+      OPS_PAGES_BASE_URL: https://hendy-operations.pages.dev
 
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
       - name: Validate deployment credentials
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "::error::Add CLOUDFLARE_API_TOKEN as a GitHub Actions secret. Use a scoped API token with Workers Scripts Edit, R2 Storage Edit, Pages Edit, and Zero Trust Access Applications/Policies, Identity Providers/Groups, and Organization permissions."
-            exit 1
-          fi
-          if ! [[ "${CLOUDFLARE_ACCOUNT_ID:-}" =~ ^[a-fA-F0-9]{32}$ ]]; then
-            echo "::error::Set CLOUDFLARE_ACCOUNT_ID as a GitHub Actions variable or secret (32 hex characters)."
-            exit 1
-          fi
-          if [ -z "${CF_ACCESS_ADMIN_EMAILS:-}" ]; then
-            echo "::error::Set CF_ACCESS_ADMIN_EMAILS to the real admin email(s), comma-separated, in GitHub Actions variables or secrets. The provisioner will use these emails to create Access allow policies."
-            exit 1
-          fi
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then echo "::error::Add CLOUDFLARE_API_TOKEN as a GitHub Actions secret."; exit 1; fi
+          if ! [[ "${CLOUDFLARE_ACCOUNT_ID:-}" =~ ^[a-fA-F0-9]{32}$ ]]; then echo "::error::Set CLOUDFLARE_ACCOUNT_ID to a 32-character Cloudflare account ID."; exit 1; fi
+          if [ -z "${CF_ACCESS_ADMIN_EMAILS:-}" ]; then echo "::error::Set CF_ACCESS_ADMIN_EMAILS to real admin emails, comma-separated."; exit 1; fi
           echo "Deployment credentials are present; secret values are not printed."
-
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-
-      - name: Validate Worker, Pages and runtime secret contract
+      - name: Validate deployment contract
         run: npm run check:deployment
-
-      - name: Typecheck and test Worker, auth, Pages gateway
+      - name: Typecheck and test
         run: |
           npm run lint
           npm test
-
-      - name: Build storefront and Admin entrypoints
+      - name: Build Worker assets (Store and protected Admin entry)
         run: |
           npm run build
           node scripts/verify-store-admin-build.mjs
-          test -s dist/index.html
-          test -s dist/admin.html
-
-      - name: Create missing Cloudflare R2 and Pages resources; reconcile runtime variables
+          node scripts/prepare-worker-assets.mjs
+      - name: Provision R2 and the three Pages projects
         run: node scripts/provision-cloudflare-resources.mjs
-
-      # Bootstrap deployment creates/updates the Worker before Access apps are attached.
-      # The final deployment below uploads secrets and activates the runtime auth config.
-      - name: Prepare Worker asset directory
-        run: node scripts/prepare-worker-assets.mjs
-
-      - name: Bootstrap Worker code and R2 binding
+      - name: Bootstrap Worker and R2 binding
         run: npx --yes wrangler@4 deploy --config=wrangler.bootstrap.toml
-
-      - name: Provision Cloudflare Access applications and runtime secrets
+      - name: Provision Access applications and Worker runtime secrets
         id: access
         run: node scripts/provision-cloudflare-access.mjs --output "$RUNNER_TEMP/worker-secrets.json"
-
-      - name: Validate final Worker configuration and asset bundle (dry run)
+      - name: Validate Worker configuration before deployment
         run: npx --yes wrangler@4 deploy --dry-run --config=wrangler.toml --secrets-file "${{ steps.access.outputs.secrets_file }}"
-
-      - name: Deploy Worker with linked runtime secrets
+      - name: Deploy Worker API and protected Admin origin
         run: npx --yes wrangler@4 deploy --config=wrangler.toml --secrets-file "${{ steps.access.outputs.secrets_file }}"
-
-      - name: Prepare storefront-only Pages output
-        shell: bash
+      - name: Build independent Pages applications and API gateways
         run: |
-          set -euo pipefail
-          rm -f dist/admin.html
-          test -s dist/index.html
-          test ! -e dist/admin.html
-          echo "Private Admin HTML remains only in the Access-gated Worker asset bundle."
-
-      - name: Compile Pages Functions into the Direct Upload Worker bundle
-        run: |
-          npx --yes wrangler@4 pages functions build functions --outfile=dist/_worker.js --output-routes-path=dist/_routes.json
-          test -s dist/_worker.js
-          test -s dist/_routes.json
-
-      - name: Deploy Pages storefront and API proxy
-        run: npx --yes wrangler@4 pages deploy dist --config=wrangler.pages.toml --project-name=hendy-tool-releas --branch=main --no-bundle
-
-      - name: Smoke-test live Worker and Pages routes
+          npm run build:pages
+          npm run build:pages:functions
+          npm run verify:pages
+      - name: Deploy public web-user Pages
+        run: npx --yes wrangler@4 pages deploy dist-pages/web-user --project-name=hendy-web-user --branch=main --commit-hash="$GITHUB_SHA" --commit-message="$GITHUB_SHA" --no-bundle
+      - name: Deploy protected web-admin Pages
+        run: npx --yes wrangler@4 pages deploy dist-pages/web-admin --project-name=hendy-web-admin --branch=main --commit-hash="$GITHUB_SHA" --commit-message="$GITHUB_SHA" --no-bundle
+      - name: Deploy protected operations Pages
+        run: npx --yes wrangler@4 pages deploy dist-pages/operations --project-name=hendy-operations --branch=main --commit-hash="$GITHUB_SHA" --commit-message="$GITHUB_SHA" --no-bundle
+      - name: Smoke-test Worker and all Pages
         run: node scripts/smoke-test-cloudflare.mjs
-
       - name: Deployment summary
         if: always()
         run: |
           {
-            echo "## Hendy Store deployment"
+            echo "## Hendy platform deployment"
             echo
-            echo "- Worker: https://hendy-tool-releas.ngogiaidy56.workers.dev/"
-            echo "- Admin: https://hendy-tool-releas.ngogiaidy56.workers.dev/admin"
-            echo "- Pages storefront: https://hendy-tool-releas.pages.dev/"
-            echo "- Runtime variables are declared in Wrangler/Pages config and reconciled by provisioning scripts."
-            echo "- Sensitive values are uploaded from a runner-temporary file and never committed to Git."
+            echo "- Worker API: https://hendy-tool-releas.ngogiaidy56.workers.dev/"
+            echo "- Web User: https://hendy-web-user.pages.dev/"
+            echo "- Web Admin (Cloudflare Access): https://hendy-web-admin.pages.dev/"
+            echo "- Operations (Cloudflare Access): https://hendy-operations.pages.dev/"
+            echo "- Admin/Operations API calls are proxied through Pages Functions to the Worker."
             echo "- Deployment stage result: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -45,3 +45,6 @@ jobs:
           node scripts/verify-store-admin-build.mjs
           test -s dist/index.html
           test -s dist/admin.html
+          npm run build:pages
+          npm run build:pages:functions
+          npm run verify:pages

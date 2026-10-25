@@ -97,14 +97,16 @@ async function ensureOneTimePinIdentityProvider() {
 async function ensureAdminApplications(teamDomain, identityProviderId) {
   const existing = resultArray(await api("/accounts/" + accountId + "/access/apps?per_page=100"));
   const protectedPaths = [
-    { name: "Hendy Admin Console", path: "/admin*" },
-    { name: "Hendy Studio Console", path: "/studio*" },
-    { name: "Hendy Admin HTML", path: "/admin.html" },
-    { name: "Hendy Admin API", path: "/api/v1/admin/*" },
+    { name: "Hendy Admin Console", domain: workerHost + "/admin*" },
+    { name: "Hendy Studio Console", domain: workerHost + "/studio*" },
+    { name: "Hendy Admin HTML", domain: workerHost + "/admin.html" },
+    { name: "Hendy Admin API", domain: workerHost + "/api/v1/admin/*" },
+    { name: "Hendy Web Admin Pages", domain: "hendy-web-admin.pages.dev/*" },
+    { name: "Hendy Operations Pages", domain: "hendy-operations.pages.dev/*" },
   ];
   const audiences = [];
   for (const entry of protectedPaths) {
-    const domain = workerHost + entry.path;
+    const domain = entry.domain || (workerHost + entry.path);
     const appBody = {
       name: entry.name,
       type: "self_hosted",
@@ -181,14 +183,14 @@ for (const secret of Object.values(secrets)) {
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, "secrets_file=" + outputPath + "\n");
   appendFileSync(process.env.GITHUB_OUTPUT, "team_domain_configured=true\n");
-  appendFileSync(process.env.GITHUB_OUTPUT, "admin_apps_configured=4\n");
+  appendFileSync(process.env.GITHUB_OUTPUT, "admin_apps_configured=6\n");
 }
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
     "### Runtime identity provisioning",
     "",
     "- Cloudflare Access organization: ready",
-    "- Protected Admin path applications: 4 configured",
+    "- Protected Admin/Operations applications: 6 configured",
     "- Admin allow-list: configured (values intentionally omitted)",
     "- Email one-time-PIN identity provider: configured",
     "- Worker secrets file: generated outside the repository",

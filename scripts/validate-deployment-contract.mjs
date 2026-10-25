@@ -44,7 +44,15 @@ for (const key of ["ENVIRONMENT", "APP_NAME", "PUBLIC_BASE_URL"]) {
   assert.match(wrangler, new RegExp("\\b" + key + "\\s*="), "Wrangler must declare runtime variable " + key);
   assert.match(worker, new RegExp("\\b" + key + "\\??\\s*:"), "Worker Env type must declare runtime variable " + key);
 }
-assert.match(pages, /pages_build_output_dir\s*=\s*"\.\/dist"/, "Pages output directory must be dist");
+assert.match(pages, /pages_build_output_dir\s*=\s*"\.\/dist"/, "Legacy compatibility Pages config output directory must be dist");
+assert.match(resources, /hendy-web-user/, "Provisioner must create the public web-user Pages project");
+assert.match(resources, /hendy-web-admin/, "Provisioner must create the protected web-admin Pages project");
+assert.match(resources, /hendy-operations/, "Provisioner must create the protected operations Pages project");
+assert.match(access, /hendy-web-admin\.pages\.dev\//, "Access must protect the web-admin Pages project");
+assert.match(access, /hendy-operations\.pages\.dev\//, "Access must protect the operations Pages project");
+assert.match(workflow, /dist-pages\/web-user/, "Workflow must deploy the web-user Pages build");
+assert.match(workflow, /dist-pages\/web-admin/, "Workflow must deploy the web-admin Pages build");
+assert.match(workflow, /dist-pages\/operations/, "Workflow must deploy the operations Pages build");
 assert.match(pages, /BACKEND_ORIGIN\s*=/, "Pages config must declare BACKEND_ORIGIN");
 assert.match(resources, /BACKEND_ORIGIN/, "Provisioner must link Pages BACKEND_ORIGIN");
 assert.match(resources, /RELEASES_BUCKET|hendy-tool-releases/, "Provisioner must create or verify the R2 resource");
@@ -67,8 +75,13 @@ assert.match(access, /secrets_file=/, "Provisioner must publish the temporary se
 assert.match(gitignore, /\.runtime/, "Runtime temporary files must be ignored by Git");
 assert.match(gitignore, /\.dev\.vars/, "Local Worker secrets must be ignored by Git");
 assert.match(smoke, /runtime\/readiness/, "Post-deploy smoke test must inspect Worker readiness");
-assert.match(smoke, /pagesBase\s*\+\s*"\/api\/v1\/published-releases"/, "Post-deploy smoke test must inspect the Pages API proxy");
+assert.match(smoke, /pagesBase\s*\+\s*"\/api\/v1\/published-releases"/, "Post-deploy smoke test must inspect the Web User API proxy");
+assert.match(smoke, /adminPagesBase/, "Smoke test must inspect the Web Admin Pages Access gate");
+assert.match(smoke, /opsPagesBase/, "Smoke test must inspect the Operations Pages Access gate");
 assert.match(workflow, /repository_dispatch:[\s\S]*types:\s*\[deploy-cloudflare\]/, "Deployment workflow must accept the documented repository_dispatch hook");
 assert.match(workflow, /wrangler@4 deploy --dry-run --config=wrangler\.toml --secrets-file/, "Deployment must validate linked runtime secrets and assets before production upload");
+assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.web-user\.config\.ts/, "Separate web-user Pages build must exist");
+assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.web-admin\.config\.ts/, "Separate web-admin Pages build must exist");
+assert.match(packageJson.scripts["build:pages"], /vite build --config vite\.operations\.config\.ts/, "Separate operations Pages build must exist");
 
 console.log("Deployment contract verified: Worker bindings, R2, runtime secret provisioning, Pages variables, provisioning outputs, GitHub hooks and live smoke tests are linked.");

@@ -7,6 +7,10 @@ if (!root) throw new Error('Admin root element is missing.');
 
 function returnToStore() {
   const host = window.location.hostname.toLowerCase();
+  if (host === 'hendy-web-admin.pages.dev') {
+    window.location.assign('https://hendy-web-user.pages.dev/');
+    return;
+  }
   if (/^(admin|studio|serverplus|admin-plus)\./.test(host)) {
     const storeHost = host.replace(/^(admin|studio|serverplus|admin-plus)\./, '');
     window.location.assign(window.location.protocol + '//' + storeHost + '/');
