@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const read = (path) => readFileSync(path, "utf8");
 const worker = read("src/worker.ts");
 const wrangler = read("wrangler.toml");
+const compatibilityWrangler = read("wrangler.worker.toml");
 const bootstrap = read("wrangler.bootstrap.toml");
 const pages = read("wrangler.pages.toml");
 const workflow = read(".github/workflows/deploy-cloudflare.yml");
@@ -21,6 +22,10 @@ const requiredWorkerSecrets = [
 const secretBlock = wrangler.match(/\[secrets\][\s\S]*?required\s*=\s*\[([^\]]*)\]/);
 assert.ok(secretBlock, "wrangler.toml must declare [secrets].required");
 const declaredSecrets = [...secretBlock[1].matchAll(/"([A-Z0-9_]+)"/g)].map((match) => match[1]);
+const compatibilitySecretBlock = compatibilityWrangler.match(/\[secrets\][\s\S]*?required\s*=\s*\[([^\]]*)\]/);
+assert.ok(compatibilitySecretBlock, "wrangler.worker.toml must declare [secrets].required");
+const compatibilityDeclaredSecrets = [...compatibilitySecretBlock[1].matchAll(/"([A-Z0-9_]+)"/g)].map((match) => match[1]);
+assert.deepEqual(compatibilityDeclaredSecrets, declaredSecrets, "Canonical and compatibility Worker configs must declare the same required secrets");
 for (const name of requiredWorkerSecrets) {
   assert.ok(declaredSecrets.includes(name), "wrangler.toml must require secret " + name);
   assert.match(worker, new RegExp("\\b" + name + "\\??\\s*:"), "Worker Env type must declare " + name);
