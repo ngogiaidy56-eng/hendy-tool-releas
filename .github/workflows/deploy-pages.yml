@@ -1,0 +1,37 @@
+name: Deploy Cloudflare Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - app: user
+            project: hendy-web-user
+            directory: dist/web-user
+          - app: admin
+            project: hendy-web-admin
+            directory: dist/web-admin
+          - app: operations
+            project: hendy-operations
+            directory: dist/operations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run build:${{ matrix.app }}
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy ${{ matrix.directory }} --project-name=${{ matrix.project }} --branch=main
