@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "mode": "alert-only",
+  "rules": [
+    { "match": "healthcheck-failure", "action": "create-alert", "requiresApproval": true },
+    { "match": "deployment-failure", "action": "collect-diagnostics", "requiresApproval": true },
+    { "match": "secret-missing", "action": "notify-operator", "requiresApproval": true }
+  ],
+  "safety": {
+    "neverLogSecrets": true,
+    "neverModifyProductionWithoutApproval": true,
+    "neverDisableSignatureOrPlatformSecurityChecks": true
+  }
+}
