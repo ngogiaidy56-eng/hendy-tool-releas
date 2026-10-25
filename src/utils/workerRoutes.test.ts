@@ -77,7 +77,7 @@ test("runtime readiness reports missing bindings without leaking secret values",
   assert.equal(body.checks.releaseStorage, false);
   assert.equal(body.checks.adminAccess, false);
   assert.equal(body.checks.ciPublisher, false);
-  assert.deepEqual(body.missing, ["ASSETS", "RELEASES_BUCKET", "Cloudflare Access runtime secrets", "RELEASE_PUBLISH_TOKEN"]);
+  assert.deepEqual(body.missing, ["ASSETS", "RELEASES_BUCKET", "Cloudflare Access runtime secrets", "CI publisher secret"]);
   assert.ok(!JSON.stringify(body).includes("RELEASE_PUBLISH_TOKEN"));
 });
 
