@@ -17,32 +17,46 @@ Useful checks after successful deployment:
 - Domain overview: `/api/v1/domains`
 - Edge telemetry: `/api/v1/telemetry`
 
-## Connect this repository to Cloudflare Workers Builds
+## GitHub Actions deployment to Cloudflare Workers & Pages
 
-Cloudflare account authorization is an interactive step and must be approved in the Dashboard. The repository is prepared for that connection.
+The GitHub Actions workflow `.github/workflows/deploy-cloudflare.yml` is the production deployment path. It validates the source, builds both independent HTML applications, creates missing Cloudflare resources, provisions Access login, pushes runtime secrets to the Worker, deploys the storefront-only Pages build, and runs live smoke tests.
 
-1. Open [Workers & Pages](https://dash.cloudflare.com/918ff2f016938fc978ed23b96505b21e/workers-and-pages).
-2. Select the existing Worker named `hendy-tool-releas`. If the Worker does not yet exist, create/import a Worker with this exact name first; the name determines the requested `workers.dev` hostname.
-3. Open **Settings → Builds → Connect** and authorize the Cloudflare Git integration for GitHub. Select repository `ngogiaidy56-eng/hendy-tool-releas`.
-4. Set the production branch to `main` and root directory to the repository root (leave it blank or use `.`).
-5. Set **Build command** to:
+### One-time GitHub configuration
 
-   ```bash
-   npm run build
-   ```
+In **GitHub → Settings → Secrets and variables → Actions**, add:
 
-   Workers Builds installs project dependencies before running this command. Do not repeat `npm install` in the build command; keep one package-manager install step so stale dependency trees are not mixed.
+| Name | Type | Purpose |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Secret | Scoped API token used by Wrangler and the provisioner |
+| `CLOUDFLARE_ACCOUNT_ID` | Variable or Secret | 32-character Cloudflare Account ID |
+| `CF_ACCESS_ADMIN_EMAILS` | Variable or Secret | Real admin email addresses, comma-separated |
+| `RELEASE_PUBLISH_TOKEN` | Optional Secret | Stable CI publishing token; automatically generated if omitted |
 
-6. Set **Deploy command** to:
+The Cloudflare API token needs access to **Workers Scripts**, **R2 Storage**, **Pages**, **Access Applications/Policies**, and **Access Organizations/Identity Providers/Groups**. Use least-privilege permissions appropriate for creating/updating these resources. Do not paste API tokens into chat, commit them to Git, or expose them as Vite `VITE_*` variables.
 
-   ```bash
-   npm run deploy:worker
-   ```
+### What deployment provisions
 
-7. Ensure the bucket `hendy-tool-releases` exists in Cloudflare R2 before deploying. The Worker config binds that bucket as `RELEASES_BUCKET`. If it is missing, create it in the Dashboard under R2 or use `npx wrangler@4 r2 bucket create hendy-tool-releases`.
-8. Save the build settings, then push a commit to `main` to trigger the first Cloudflare build. Watch the build and deployment status from the Worker’s **Builds** view. Saving settings alone does not prove a successful deployment.
+On each matching push to `main` (or manual **Run workflow**), the deployment workflow:
 
-Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/). Build settings are managed in **Worker → Settings → Builds**; Cloudflare applies saved configuration on the next build. The Worker name in the Dashboard must match the Wrangler `name` value.
+1. Installs dependencies and runs TypeScript checks, Worker/Access tests, Pages gateway tests, Vite production build and build-artifact assertions.
+2. Creates R2 bucket `hendy-tool-releases` and Pages project `hendy-tool-releas` if absent. Existing Pages production/preview environment variables are merged rather than replaced.
+3. Creates/reuses a Cloudflare Zero Trust organization and an email one-time-PIN identity provider. It creates or updates Access applications for `/admin*`, `/studio*`, `/admin.html` and `/api/v1/admin/*`, with policies restricted to `CF_ACCESS_ADMIN_EMAILS`.
+4. Bootstraps Worker assets, provisions runtime identity, generates a temporary secrets file **outside the repository**, and deploys the final Worker. Cloudflare secret values are masked and never printed into logs.
+5. Deploys only `dist/index.html` and public assets to Pages; `dist/admin.html` is removed before the Pages upload. Pages public API paths proxy to the primary Worker. Admin API paths at the separate Pages origin are explicitly denied.
+6. Runs post-deploy smoke tests against the Worker health/readiness endpoints and Pages proxy. The workflow fails if the required runtime bindings are missing or the Admin route remains in setup-error state.
+
+Non-secret runtime variables such as `ENVIRONMENT`, `APP_NAME`, `PUBLIC_BASE_URL` and Pages `BACKEND_ORIGIN` are declared in Wrangler/Pages configuration and reconciled by the provisioning script. Required Worker secret names are declared in `wrangler.toml`. The Access issuer, application audience tags and allow-list are linked into the Worker at deploy time. The CI publisher token is separate from interactive Admin login; the Admin API can authenticate through Access even when no repository publisher token exists.
+
+**Use a single deployment controller.** If this Worker is already connected to Cloudflare **Workers Builds → Git integration**, disable its automatic production deploy after enabling the GitHub Actions workflow. Running both pipelines against the same Worker can cause deploy races and mismatched runtime secrets. The GitHub Actions workflow is now intended to own production deploys.
+
+Useful links:
+
+- [GitHub deployment workflow](.github/workflows/deploy-cloudflare.yml)
+- [Verify workflow](.github/workflows/verify-store-admin.yml)
+- [Build and publish web release](.github/workflows/build-and-publish-release.yml)
+- [Cloudflare Workers CI/CD documentation](https://developers.cloudflare.com/workers/ci-cd/)
+- [Cloudflare Access application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
+- [Cloudflare Worker secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
 
 ## Repository deployment files
 
@@ -53,7 +67,11 @@ Official setup guide: [Cloudflare Workers Builds](https://developers.cloudflare.
 - `wrangler.pages.toml`: reference settings for the optional separate Pages project. Pages project runtime variables should be set in that project's Dashboard when using Direct Upload.
 - `functions/api/[[path]].ts`: optional Pages Functions API gateway. Set `BACKEND_ORIGIN=https://hendy-tool-releas.ngogiaidy56.workers.dev` in the Pages project's production environment if API paths should proxy to the Worker.
 - `server.ts`: optional Express server for Node/Render. Cloudflare Workers does not run this file.
-- `.github/workflows/deploy-cloudflare.yml`: manual optional Pages Direct Upload for the public storefront only; it removes `dist/admin.html` before upload. The Pages API gateway fails closed for admin routes unless `BACKEND_ORIGIN` forwards them to the authenticated primary Worker. The primary Worker deploy is handled by Cloudflare Workers Builds to avoid two production deploy systems competing over the same Worker.
+- `.github/workflows/deploy-cloudflare.yml`: GitHub Actions source of truth for runtime provisioning, Worker + Pages deployment and post-deploy smoke tests. It keeps Admin HTML on the Worker and the Pages deployment storefront-only.
+- `scripts/provision-cloudflare-resources.mjs`: idempotently creates R2/Pages resources and links runtime variables without overwriting unrelated existing settings.
+- `scripts/provision-cloudflare-access.mjs`: creates/reuses the Zero Trust organization, email OTP provider, path-specific Access applications and a temporary Worker secrets file. Values are never committed or printed.
+- `scripts/smoke-test-cloudflare.mjs`: verifies live Worker readiness, R2 binding, Admin setup status and Pages proxy behavior after deploy.
+- `wrangler.bootstrap.toml`: temporary first-deploy configuration without required-secret assertions. Normal production deployments use `wrangler.toml`, which declares required Access secrets.
 
 ## Local validation / manual deployment
 
@@ -68,26 +86,26 @@ npm run build
 # Deploy the primary Worker + UI + API:
 npm run deploy:worker
 
-# Optional: deploy the Pages Direct Upload project:
-npm run deploy:pages
+# Check a previously configured Worker + Pages deployment:
+npm run smoke:cloudflare
 ```
 
-For local manual Worker deployment, authenticate with `npx wrangler@4 login` first. For automation outside Workers Builds, provide a scoped `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` through the CI secret manager; do not commit tokens.
+For local manual Worker deployment, authenticate with `npx wrangler@4 login` and run the resource/Access provisioning scripts before using the production `wrangler.toml`; required Access secrets must be present. Never commit generated `.runtime` or secrets files.
 
 ## Two separate interfaces and packaging/publishing
 
 - **Storefront (public):** `/` lists only artifacts returned by the public R2 release catalog. It uses `index.html`, `src/main.tsx`, `src/App.tsx`, and `src/store.css`.
 - **Admin / Developer Console (private):** `/admin` is a separately compiled application using `admin.html`, `src/admin-main.tsx`, `src/interface/admin/StudioWorkspace.tsx`, and `src/admin.css`. It has its own HTML entrypoint, React root, styling bundle and browser navigation; it does not switch views inside the storefront SPA.
-- The Worker serves the dedicated admin document only after validating a signed Cloudflare Access JWT. Missing Access configuration returns `503`; missing/invalid credentials return `401`. The admin status API and admin manifest are also guarded. Configure an Access policy that explicitly allow-lists the admin identity or approved email/group; do not use an unrestricted “allow everyone” policy.
+- The Worker serves the dedicated Admin document only after validating a signed Cloudflare Access JWT. The GitHub provisioner creates the Access organization and path policies for the configured email allow-list; missing credentials still fail closed. Four application audience values are accepted and checked after signature/issuer/expiry verification. The Admin status API and admin manifest are also guarded.
 - The console provides source ZIP import, SemVer metadata, browser ZIP packaging, SHA-256 calculation, artifact upload, release history, storefront branding/content controls and configuration status. It shows whether secrets are configured, never their values.
 - Studio packaging produces a **source bundle ZIP**, `release-manifest.json`, and `checksums.sha256`; GitHub Actions can also build and package the actual web application into a distribution ZIP. Neither path pretends to compile native EXE/APK/IPA files or create code signatures. Native packages must be built and signed on an appropriate platform runner, then uploaded as artifacts.
-- `RELEASE_PUBLISH_TOKEN` is integrated server-side as a Cloudflare Worker secret and is never sent to the browser. Configure it once with `npx wrangler@4 secret put RELEASE_PUBLISH_TOKEN --config=wrangler.toml` or the Cloudflare Dashboard. The UI does not ask administrators to paste the token.
-- Configure Worker variables `CF_ACCESS_TEAM_DOMAIN=https://<your-team>.cloudflareaccess.com`, `CF_ACCESS_AUD=<Access application AUD tag>`, and `CF_ACCESS_ADMIN_EMAILS=admin@example.com,second-admin@example.com` using your real permitted admin email addresses. Create a Cloudflare Access self-hosted application and protect `/admin*`, `/studio*`, `/admin.html`, and `/api/v1/admin/*` with an explicit admin allow policy. The Worker independently verifies the signed `Cf-Access-Jwt-Assertion` issuer, audience, expiration, signature, **and the email claim against `CF_ACCESS_ADMIN_EMAILS`** before it serves the Admin Console or admin status. Missing variables return `503`, missing credentials return `401`, and an authenticated but non-allow-listed email returns `403`. See [Cloudflare JWT validation docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
+- `RELEASE_PUBLISH_TOKEN` is a server-side Cloudflare Worker secret and is never sent to the browser. The deployment workflow generates it if the optional GitHub secret is absent. When manually publishing a web release, the publish workflow also synchronizes the chosen token to the Worker before making the API request.
+- The GitHub runtime provisioner automatically generates/links `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD` (one audience per protected path) and `CF_ACCESS_ADMIN_EMAILS`, and uploads them as Worker secrets. The Access policy is restricted to the real emails supplied in GitHub Actions configuration. The Worker verifies the signed JWT issuer, one of the provisioned audiences, expiry, signature and email allow-list. Missing runtime configuration returns `503`, missing credentials return `401`, and an authenticated but unauthorized email returns `403`. See [Cloudflare JWT validation docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/).
 - The direct upload endpoint currently accepts files up to 25 MB; larger binaries need a presigned/multipart upload service. Do not place `RELEASE_PUBLISH_TOKEN` in the repository, frontend bundle, or browser storage.
 
 ## Build and publish a real web release
 
-Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow runs the Vite production build, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Configure the GitHub Actions secret `RELEASE_PUBLISH_TOKEN` and the Cloudflare Worker secret with the same value; the secret is never embedded into the UI. The direct upload API limit is 25 MB.
+Open GitHub Actions → **Build and publish Hendy web release** (`.github/workflows/build-and-publish-release.yml`) and enter a SemVer version and release notes. The workflow builds the production web app, packages actual `dist/` files into a ZIP with per-file SHA-256 manifest, and uploads the ZIP as an Actions artifact. Enable `publish_to_store` to upload it to the Worker API. Before publishing it generates a temporary token if necessary and synchronizes it to the Worker Secret via Wrangler; the token is never embedded in the UI. The direct upload API limit is 25 MB.
 
 Interactive admins authenticate through Cloudflare Access. Configure Worker variables `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, and `CF_ACCESS_ADMIN_EMAILS`; protect `/admin*`, `/studio*`, `/admin.html`, and `/api/v1/admin/*` with an Access application and an explicit admin allow-list. The Worker re-verifies the Access JWT and email allow-list, so opening the private UI does not depend on a client-side route check. CI publishes server-to-server using the GitHub Actions secret `RELEASE_PUBLISH_TOKEN`; that path does not expose the token to either UI.
 
