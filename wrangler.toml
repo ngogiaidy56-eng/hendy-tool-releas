@@ -21,4 +21,4 @@ binding = "RELEASES_BUCKET"
 bucket_name = "hendy-tool-releases"
 
 [secrets]
-required = ["CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_ADMIN_EMAILS"]
+required = ["RELEASE_PUBLISH_TOKEN", "CF_ACCESS_TEAM_DOMAIN", "CF_ACCESS_AUD", "CF_ACCESS_ADMIN_EMAILS"]
