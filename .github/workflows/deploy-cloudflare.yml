@@ -101,6 +101,9 @@ jobs:
         id: access
         run: node scripts/provision-cloudflare-access.mjs --output "$RUNNER_TEMP/worker-secrets.json"
 
+      - name: Validate final Worker configuration and asset bundle (dry run)
+        run: npx --yes wrangler@4 deploy --dry-run --config=wrangler.toml --secrets-file "${{ steps.access.outputs.secrets_file }}"
+
       - name: Deploy Worker with linked runtime secrets
         run: npx --yes wrangler@4 deploy --config=wrangler.toml --secrets-file "${{ steps.access.outputs.secrets_file }}"
 
