@@ -16,7 +16,8 @@
     "package:web-release": "node scripts/package-web-release.mjs",
     "provision:cloudflare:resources": "node scripts/provision-cloudflare-resources.mjs",
     "provision:cloudflare:access": "node scripts/provision-cloudflare-access.mjs",
-    "smoke:cloudflare": "node scripts/smoke-test-cloudflare.mjs"
+    "smoke:cloudflare": "node scripts/smoke-test-cloudflare.mjs",
+    "check:deployment": "node scripts/validate-deployment-contract.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
