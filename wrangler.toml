@@ -1,4 +1,5 @@
-# Canonical production Worker configuration used by the GitHub Actions deployment.
+# Canonical production Worker configuration for the GitHub Actions workflow and direct Workers Builds.
+# Secrets are provisioned separately; Worker authorization fails closed until Access secrets exist.
 # Keep the Worker name exactly "hendy-tool-releas" to retain its workers.dev URL.
 name = "hendy-tool-releas"
 main = "./src/worker.ts"
